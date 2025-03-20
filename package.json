@@ -6,7 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: only unlucky people need tests\" && exit 1",
-    "build": "webpack"
+    "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --mode production"
   },
   "keywords": [
     "order book",

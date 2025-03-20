@@ -1,6 +1,6 @@
 //const path = require('path');
 
-export default () => ({
+module.exports =  () => ({
   entry: './src/index.js',
   target: 'web',
   mode: 'development',
