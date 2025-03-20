@@ -9,7 +9,7 @@ export default {
   target: 'web',
   mode: 'development',
   output: {
-    filename: 'bundle.js',
+    filename: 'main.js',
     path: path.resolve(__dirname, 'dist'),
   },
   devServer: {

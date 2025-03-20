@@ -1,4 +1,4 @@
-import Tick from './Tick.js';
+import Tick from '../lib/Tick.js';
 
 const tick = new Tick("0.000010000");
 //0.4634500000000001 100.40000000000002 "0.46345000" "100.40000000"
