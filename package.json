@@ -6,7 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: only unlucky people need tests\" && exit 1",
-    "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --mode production"
+    "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --mode production",
+    "dev": "set NODE_OPTIONS=--openssl-legacy-provider && webpack serve --mode development"
   },
   "keywords": [
     "order book",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "webpack": "^5.24.2",
-    "webpack-cli": "^4.5.0"
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
   }
 }
