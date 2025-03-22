@@ -3,11 +3,11 @@
   "type": "module",
   "version": "1.0.0",
   "description": "This was an exploratory project, that I put together in a couple days in order familiarize myself with the Binance API and the limitations around the live market data streams provided by them. The end-result of this repo is a live order book visualization, although this wasn't the main goal. Keep in mind that if all you need is an order book display most of the code in this repo will be of no use to you.",
-  "main": "src/index.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: only unlucky people need tests\" && exit 1",
     "build": "set NODE_OPTIONS=--openssl-legacy-provider && webpack --mode production",
-    "dev": "set NODE_OPTIONS=--openssl-legacy-provider && webpack serve --mode development"
+    "dev": "webpack serve --mode development"
   },
   "keywords": [
     "order book",
@@ -35,9 +35,10 @@
   "license": "BSD",
   "dependencies": {
     "axios": "^0.21.1",
-    "d3": "^4.13.0",
     "isomorphic-ws": "^4.0.0",
-    "ws": "^4.0.0"
+    "ws": "^4.0.0",
+    "pixi.js": "^8.9.0",
+    "pixi-viewport": "^6.0.3"
   },
   "devDependencies": {
     "webpack": "^5.24.2",
