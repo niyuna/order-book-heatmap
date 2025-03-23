@@ -7,6 +7,7 @@ import { numCompare } from '../lib/utils.js';
 import { fmtNum, fmtTime } from '../lib/fmt.js';
 import TradesTable from './components/TradesTable.js';
 import BarChart from './components/BarChart.js';
+import TSEDataFeed from '../lib/TSEDataFeed.js';
 
 export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
@@ -105,7 +106,7 @@ export default class Dashboard {
       const snapshot = this.book.getSnapshot(levels + this.bufferLevels, aggregation);
 
       if (snapshot) {
-        this.updateDashboard(snapshot);
+        this.updateDashboard(snapshot, Date.now());
         this.renderTimeAndSales();
         this.renderHeatmap();
         this.renderLimitOrdersBarChart();
@@ -335,17 +336,21 @@ export default class Dashboard {
   }
 
   // restructure & derive secondary metrics from the OrderBook snapshot
-  updateDashboard(snapshot) {
+  updateDashboard(snapshot, timestamp) {
+    // 如果没有提供时间戳，使用当前时间
+    const currentTimestamp = timestamp || Date.now();
+    
     // 计算时间戳
-    const ts = fmtTime(new Date(), this.updateInterval);
+    const ts = fmtTime(new Date(currentTimestamp), this.updateInterval);
 
     // 更新 x 轴（时间戳）
+    if (this.x.length === 0 || this.x[this.x.length - 1] !== ts) {
     this.x.push(ts);
-    if (this.x.length > this.extendedMaxSeriesLength) {
-      this.x.shift();
       
-      // 移除旧的单元格和增量点
-      this.cleanupOldCells();
+      // 限制 x 轴数据点数量
+      if (this.x.length > this.extendedMaxSeriesLength) {
+        this.x.shift();
+      }
     }
     
     // 更新 y 轴（价格）
@@ -890,5 +895,114 @@ export default class Dashboard {
     // 调试信息
     console.log('Heatmap rect:', rect);
     console.log('Tooltip position:', { left: window.tooltip.style.left, top: window.tooltip.style.top });
+  }
+
+  async loadHistoricalData(symbol, startTime, endTime, updateInterval) {
+    try {
+      // 检查数据源类型
+      if (!(this.book.feed instanceof TSEDataFeed)) {
+        console.error('Historical data loading is only supported for TSE feed');
+        return false;
+      }
+      
+      // 显示加载指示器
+      this.showLoadingIndicator();
+      
+      // 获取历史数据
+      const historicalData = await this.book.feed.getHistoricalData(
+        symbol,
+        startTime,
+        endTime,
+        updateInterval
+      );
+      
+      // 清除现有数据
+      this.clearData();
+      
+      // 处理热图数据
+      for (const dataPoint of historicalData.heatmapData) {
+        this.updateDashboard(dataPoint.snapshot, dataPoint.timestamp);
+      }
+      
+      // 只处理最后一个时间间隔的交易数据
+      if (historicalData.tradesData.length > 0) {
+        // 获取最后一个热图数据点的时间戳
+        const lastTimestamp = historicalData.heatmapData.length > 0 
+          ? historicalData.heatmapData[historicalData.heatmapData.length - 1].timestamp 
+          : endTime - updateInterval;
+        
+        // 筛选最后一个时间间隔的交易数据
+        this.trades = historicalData.tradesData.filter(trade => 
+          trade.time >= lastTimestamp && trade.time < lastTimestamp + updateInterval
+        );
+        
+        console.log(`Loaded ${this.trades.length} trades from the last interval`);
+      }
+      
+      // 更新视图
+      this.renderHeatmap();
+      this.renderTimeAndSales();
+      this.renderLimitOrdersBarChart();
+      
+      // 隐藏加载指示器
+      this.hideLoadingIndicator();
+      
+      return true;
+    } catch (error) {
+      console.error('Error loading historical data:', error);
+      this.hideLoadingIndicator();
+      return false;
+    }
+  }
+
+  // 清除数据的辅助方法
+  clearData() {
+    this.orderbook = [];
+    this.trades = [];
+    this.mktBuys = [];
+    this.mktSells = [];
+    this.mktOrderDeltas = [];
+    this.askLine = [];
+    this.bidLine = [];
+    this.x = [];
+    this.y = [];
+    
+    // 清除热图单元格和增量点
+    this.cellMap.forEach(cell => cell.destroy());
+    this.cellMap.clear();
+    
+    this.deltaMap.forEach(delta => delta.destroy());
+    this.deltaMap.clear();
+    
+    // 清除容器
+    this.heatmapCellsContainer.removeChildren();
+    this.heatmapDeltasContainer.removeChildren();
+  }
+
+  // 加载指示器方法
+  showLoadingIndicator() {
+    if (!this.loadingIndicator) {
+      this.loadingIndicator = document.createElement('div');
+      this.loadingIndicator.className = 'loading-indicator';
+      this.loadingIndicator.innerHTML = 'Loading historical data...';
+      this.loadingIndicator.style.position = 'absolute';
+      this.loadingIndicator.style.top = '50%';
+      this.loadingIndicator.style.left = '50%';
+      this.loadingIndicator.style.transform = 'translate(-50%, -50%)';
+      this.loadingIndicator.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+      this.loadingIndicator.style.color = 'white';
+      this.loadingIndicator.style.padding = '20px';
+      this.loadingIndicator.style.borderRadius = '5px';
+      this.loadingIndicator.style.zIndex = '1000';
+      this.el.appendChild(this.loadingIndicator);
+    } else {
+      this.loadingIndicator.style.display = 'block';
+    }
+  }
+
+  hideLoadingIndicator() {
+    if (this.loadingIndicator) {
+      this.loadingIndicator.style.display = 'none';
+    }
   }
 }

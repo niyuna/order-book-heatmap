@@ -25,6 +25,34 @@ export default class UI {
     const binanceSymbolSelect = document.getElementById('binance-symbol');
     const tseSymbolInput = document.getElementById('tse-symbol');
     
+    // 获取历史数据控件
+    const historicalDataWrapper = document.querySelector('.historical-data');
+    const startTimeInput = document.getElementById('start-time');
+    const endTimeInput = document.getElementById('end-time');
+    const loadHistoricalButton = document.getElementById('load-historical-data');
+    
+    // 设置默认时间范围（过去 1 小时）
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    startTimeInput.value = oneHourAgo.toISOString().slice(0, 16);
+    endTimeInput.value = now.toISOString().slice(0, 16);
+    
+    // 根据 feed 类型显示或隐藏历史数据控件
+    const updateHistoricalDataVisibility = () => {
+      const feedType = feedSelect.value;
+      if (feedType === 'tse') {
+        historicalDataWrapper.style.display = '';
+      } else {
+        historicalDataWrapper.style.display = 'none';
+      }
+    };
+    
+    // 初始调用一次
+    updateHistoricalDataVisibility();
+    
+    // 当 feed 类型变化时更新历史数据控件的可见性
+    feedSelect.addEventListener('change', updateHistoricalDataVisibility);
+    
     // 创建仪表板的函数
     const createDashboard = () => {
       // 获取所有选项值
@@ -82,6 +110,56 @@ export default class UI {
           // 创建新仪表板
           createDashboard();
         });
+      }
+    });
+    
+    // 添加加载历史数据的事件监听器
+    loadHistoricalButton.addEventListener('click', async () => {
+      const feedType = feedSelect.value;
+      
+      // 只允许 TSE 数据源加载历史数据
+      if (feedType !== 'tse') {
+        alert('Historical data loading is only available for TSE feed');
+        return;
+      }
+      
+      const symbol = tseSymbolInput.value;
+      const startTime = new Date(startTimeInput.value).getTime();
+      const endTime = new Date(endTimeInput.value).getTime();
+      const updateInterval = parseInt(updateIntervalSelect.value);
+      
+      // 验证输入
+      if (isNaN(startTime) || isNaN(endTime)) {
+        alert('Please enter valid start and end times');
+        return;
+      }
+      
+      if (endTime <= startTime) {
+        alert('End time must be greater than start time');
+        return;
+      }
+      
+      // 加载历史数据
+      try {
+        loadHistoricalButton.disabled = true;
+        loadHistoricalButton.textContent = 'Loading...';
+        
+        const success = await this.dashboardManager.dashboard.loadHistoricalData(
+          symbol,
+          startTime,
+          endTime,
+          updateInterval
+        );
+        
+        if (!success) {
+          alert('Failed to load historical data. Please check the console for details.');
+        }
+      } catch (error) {
+        console.error('Error loading historical data:', error);
+        alert('An error occurred while loading historical data');
+      } finally {
+        loadHistoricalButton.disabled = false;
+        loadHistoricalButton.textContent = 'Load';
       }
     });
     
