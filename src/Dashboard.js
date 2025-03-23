@@ -11,6 +11,9 @@ import TSEDataFeed from '../lib/TSEDataFeed.js';
 
 export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
+    // 存储数据源对象
+    this.feed = feed;
+    
     // construct the orderbook, also it will init in 2s using remote snapshot
     this.book = new OrderBook(feed, symbol, tickSize);
     this.tick = new Tick(tickSize, aggregation);
@@ -114,20 +117,6 @@ export default class Dashboard {
     }, updateInterval);
     this.intervals.push(rerenderInterval);
 
-    // recalculate order book intensity every 2 seconds
-    // let recalculateDepth = setInterval(() => {
-    //   let maxDepth = 0;
-    //   for (let i = 0, l = this.orderbook.length; i < l; i++) {
-    //     if (this.orderbook[i].value > maxDepth)
-    //       maxDepth = this.orderbook[i].value;
-    //   }
-
-    //   this.maxDepth = maxDepth;
-    // }, 2000);
-    // this.intervals.push(recalculateDepth);
-
-    // Add event listeners for interactions
-    // this.setupEventListeners();
   }
 
   async setupPixiApplications() {
@@ -238,102 +227,102 @@ export default class Dashboard {
     this.updateTooltipPosition();
   }
   
-  getDataPointFromCoordinates(x, y, chartType) {
-    if (chartType === 'heatmap') {
-      const margin = { top: 25, right: 100, bottom: 25, left: 25 };
-      const width = this.heatmapApp.renderer.width - margin.left - margin.right;
-      const height = this.heatmapApp.renderer.height - margin.top - margin.bottom;
+  // getDataPointFromCoordinates(x, y, chartType) {
+  //   if (chartType === 'heatmap') {
+  //     const margin = { top: 25, right: 100, bottom: 25, left: 25 };
+  //     const width = this.heatmapApp.renderer.width - margin.left - margin.right;
+  //     const height = this.heatmapApp.renderer.height - margin.top - margin.bottom;
       
-      // Adjust coordinates to account for margins
-      const adjustedX = x - margin.left;
-      const adjustedY = y - margin.top;
+  //     // Adjust coordinates to account for margins
+  //     const adjustedX = x - margin.left;
+  //     const adjustedY = y - margin.top;
       
-      if (adjustedX < 0 || adjustedX > width || adjustedY < 0 || adjustedY > height) {
-        return null;
-      }
+  //     if (adjustedX < 0 || adjustedX > width || adjustedY < 0 || adjustedY > height) {
+  //       return null;
+  //     }
       
-      // Calculate cell width and height
-      const cellWidth = width / this.x.length;
-      const cellHeight = height / this.y.length;
+  //     // Calculate cell width and height
+  //     const cellWidth = width / this.x.length;
+  //     const cellHeight = height / this.y.length;
       
-      // Calculate which cell was clicked
-      const xIndex = Math.floor(adjustedX / cellWidth);
-      const yIndex = Math.floor(adjustedY / cellHeight);
+  //     // Calculate which cell was clicked
+  //     const xIndex = Math.floor(adjustedX / cellWidth);
+  //     const yIndex = Math.floor(adjustedY / cellHeight);
       
-      if (xIndex < 0 || xIndex >= this.x.length || yIndex < 0 || yIndex >= this.y.length) {
-        return null;
-      }
+  //     if (xIndex < 0 || xIndex >= this.x.length || yIndex < 0 || yIndex >= this.y.length) {
+  //       return null;
+  //     }
       
-      // Find the corresponding data point
-      const xValue = this.x[xIndex];
-      const yValue = this.y[yIndex];
+  //     // Find the corresponding data point
+  //     const xValue = this.x[xIndex];
+  //     const yValue = this.y[yIndex];
       
-      // Check for orderbook data
-      for (const item of this.orderbook) {
-        if (item.x === xValue && item.y === yValue) {
-          return { type: 'orderbook', data: item };
-        }
-      }
+  //     // Check for orderbook data
+  //     for (const item of this.orderbook) {
+  //       if (item.x === xValue && item.y === yValue) {
+  //         return { type: 'orderbook', data: item };
+  //       }
+  //     }
       
-      // Check for market order deltas
-      for (const delta of this.mktOrderDeltas) {
-        if (delta.x === xValue && Math.abs(this.y.indexOf(delta.y) - yIndex) <= 1) {
-          // Check if the click is within the circle
-          const centerX = margin.left + (xIndex + 0.5) * cellWidth;
-          const centerY = margin.top + (this.y.indexOf(delta.y) + 0.5) * cellHeight;
-          const radius = this.getDeltaDotRadius(delta.totalSize, cellHeight, Math.max(...this.mktOrderDeltas.map(x => x.totalSize)));
+  //     // Check for market order deltas
+  //     for (const delta of this.mktOrderDeltas) {
+  //       if (delta.x === xValue && Math.abs(this.y.indexOf(delta.y) - yIndex) <= 1) {
+  //         // Check if the click is within the circle
+  //         const centerX = margin.left + (xIndex + 0.5) * cellWidth;
+  //         const centerY = margin.top + (this.y.indexOf(delta.y) + 0.5) * cellHeight;
+  //         const radius = this.getDeltaDotRadius(delta.totalSize, cellHeight, Math.max(...this.mktOrderDeltas.map(x => x.totalSize)));
           
-          const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-          if (distance <= radius) {
-            return { type: 'delta', data: delta };
-          }
-        }
-      }
+  //         const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+  //         if (distance <= radius) {
+  //           return { type: 'delta', data: delta };
+  //         }
+  //       }
+  //     }
       
-      return null;
-    } else if (chartType === 'barchart') {
-      const margin = { top: 20, right: 40, bottom: 25, left: 0 };
-      const width = this.barChartApp.renderer.width - margin.left - margin.right;
-      const height = this.barChartApp.renderer.height - margin.top - margin.bottom;
+  //     return null;
+  //   } else if (chartType === 'barchart') {
+  //     const margin = { top: 20, right: 40, bottom: 25, left: 0 };
+  //     const width = this.barChartApp.renderer.width - margin.left - margin.right;
+  //     const height = this.barChartApp.renderer.height - margin.top - margin.bottom;
       
-      // Adjust coordinates to account for margins
-      const adjustedX = x - margin.left;
-      const adjustedY = y - margin.top;
+  //     // Adjust coordinates to account for margins
+  //     const adjustedX = x - margin.left;
+  //     const adjustedY = y - margin.top;
       
-      if (adjustedX < 0 || adjustedX > width || adjustedY < 0 || adjustedY > height) {
-        return null;
-      }
+  //     if (adjustedX < 0 || adjustedX > width || adjustedY < 0 || adjustedY > height) {
+  //       return null;
+  //     }
       
-      // Get sorted prices for x-axis
-      const sortedPrices = [...this.y].sort((a, b) => parseFloat(a) - parseFloat(b));
+  //     // Get sorted prices for x-axis
+  //     const sortedPrices = [...this.y].sort((a, b) => parseFloat(a) - parseFloat(b));
       
-      // Calculate bar width
-      const barWidth = width / sortedPrices.length;
+  //     // Calculate bar width
+  //     const barWidth = width / sortedPrices.length;
       
-      // Calculate which bar was clicked
-      const barIndex = Math.floor(adjustedX / barWidth);
+  //     // Calculate which bar was clicked
+  //     const barIndex = Math.floor(adjustedX / barWidth);
       
-      if (barIndex < 0 || barIndex >= sortedPrices.length) {
-        return null;
-      }
+  //     if (barIndex < 0 || barIndex >= sortedPrices.length) {
+  //       return null;
+  //     }
       
-      // Find the corresponding price
-      const price = sortedPrices[barIndex];
+  //     // Find the corresponding price
+  //     const price = sortedPrices[barIndex];
       
-      // Find the corresponding data point in the latest orderbook snapshot
-      for (let l = this.orderbook.length - 1; l > 0; l--) {
-        const lvl = this.orderbook[l];
-        if (lvl.x !== this.x[this.x.length - 1]) break;
-        if (lvl.y === price) {
-          return { type: 'bar', data: lvl };
-        }
-      }
+  //     // Find the corresponding data point in the latest orderbook snapshot
+  //     for (let l = this.orderbook.length - 1; l > 0; l--) {
+  //       const lvl = this.orderbook[l];
+  //       if (lvl.x !== this.x[this.x.length - 1]) break;
+  //       if (lvl.y === price) {
+  //         return { type: 'bar', data: lvl };
+  //       }
+  //     }
       
-      return null;
-    }
+  //     return null;
+  //   }
     
-    return null;
-  }
+  //   return null;
+  // }
 
   // restructure & derive secondary metrics from the OrderBook snapshot
   updateDashboard(snapshot, timestamp) {
@@ -688,25 +677,20 @@ export default class Dashboard {
     }
   }
   
-  scrollToLatestData() {
-    // 计算最新数据的位置
-    const latestX = (this.x.length - 1) * this.cellSize.width;
-    
-    // 平移视图以显示最新数据
-    this.heatmapViewport.moveCenter(latestX - this.cellSize.width * 2, this.heatmapViewport.center.y);
-    
-    // 更新坐标轴
-    this.renderHeatmapAxes();
-  }
-  
   renderHeatmap() {
     // 不再需要完全重绘，只需更新坐标轴
     this.renderHeatmapAxes();
   }
   
   renderHeatmapAxes() {
-    // 清除坐标轴容器
+    // 清除现有的坐标轴
     this.heatmapAxesContainer.removeChildren();
+    
+    // 检查视口是否存在
+    if (!this.heatmapViewport) {
+      console.warn('Viewport is not initialized, skipping axes rendering');
+      return;
+    }
     
     // 创建文本样式
     const textStyle = new PIXI.TextStyle({
@@ -908,6 +892,10 @@ export default class Dashboard {
       // 显示加载指示器
       this.showLoadingIndicator();
       
+      // 停止自动更新
+      this.clearDashboardIntervals();
+      console.log('Stopped automatic updates for historical data view');
+      
       // 获取历史数据
       const historicalData = await this.feed.getHistoricalData(
         symbol,
@@ -922,6 +910,19 @@ export default class Dashboard {
       // 重置 OrderBook
       this.book.reset();
       
+      // 确保视口已初始化
+      // if (!this.heatmapViewport) {
+      //   console.log('Reinitializing viewport');
+      //   this.setupPixiApplications();
+      // }
+
+      // 初始化交易表格
+      this.tradesTable = new TradesTable(this.el.querySelector('.trades'), this.tick);
+    
+      // 初始化条形图
+      this.barChart = new BarChart(this.el.querySelector('.limit-orders-bar-chart'));
+      await this.setupPixiApplications();
+      
       // 处理历史数据
       if (historicalData.heatmapData.length > 0) {
         // 首先处理第一个快照，以便设置初始价格
@@ -934,7 +935,7 @@ export default class Dashboard {
         const firstSnapshot = this.book.getSnapshot(this.levels + this.bufferLevels, this.aggregation);
         
         // 更新 originPrice 为第一个快照的价格中点
-        if (firstSnapshot && firstSnapshot.asks.length > 0 && firstSnapshot.bids.length > 0) {
+        if (firstSnapshot && firstSnapshot.aggAskSizes.length > 0 && firstSnapshot.aggBidSizes.length > 0) {
           
           // 计算中点价格并使用 tick.round 方法进行四舍五入
           const midPrice = this.tick.roundStep((firstSnapshot.ask + firstSnapshot.bid) / 2);
@@ -991,6 +992,9 @@ export default class Dashboard {
       // 隐藏加载指示器
       this.hideLoadingIndicator();
       
+      // 添加一个提示，告诉用户如何恢复实时数据
+      console.log('Historical data loaded. To resume real-time updates, please refresh the dashboard.');
+      
       return true;
     } catch (error) {
       console.error('Error loading historical data:', error);
@@ -1012,15 +1016,24 @@ export default class Dashboard {
     this.y = [];
     
     // 清除热图单元格和增量点
-    this.cellMap.forEach(cell => cell.destroy());
-    this.cellMap.clear();
+    if (this.cellMap) {
+      this.cellMap.forEach(cell => cell.destroy());
+      this.cellMap.clear();
+    }
     
-    this.deltaMap.forEach(delta => delta.destroy());
-    this.deltaMap.clear();
+    if (this.deltaMap) {
+      this.deltaMap.forEach(delta => delta.destroy());
+      this.deltaMap.clear();
+    }
     
     // 清除容器
-    this.heatmapCellsContainer.removeChildren();
-    this.heatmapDeltasContainer.removeChildren();
+    if (this.heatmapCellsContainer) {
+      this.heatmapCellsContainer.removeChildren();
+    }
+    
+    if (this.heatmapDeltasContainer) {
+      this.heatmapDeltasContainer.removeChildren();
+    }
   }
 
   // 加载指示器方法

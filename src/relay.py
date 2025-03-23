@@ -24,8 +24,9 @@ shared_vars['active_ws_connection'] = []
 origins = [
     "http://localhost:3000",
     "https://sbi.brisk.jp",
-    "https://docs.google.com"
-    "http://localhost:8888"
+    "https://docs.google.com",
+    "http://localhost:8888",
+    "http://localhost:8080"
 ]
 
 app.add_middleware(

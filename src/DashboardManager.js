@@ -16,28 +16,25 @@ export default class DashboardManager {
   }
 
   createDashboard(feedType, symbol, tickSize, updateInterval, levels, aggregation, maxSeriesLength, scale, theme) {
-    // 清除现有的仪表板
+    // 清除现有仪表板
     this.clearDashboard();
     
-    // 根据 feedType 创建相应的数据源
-    switch (feedType.toLowerCase()) {
-      case 'binance':
-        this.feed = new BinanceDataFeed();
-        break;
-      case 'tse':
-        this.feed = new TSEDataFeed();
-        break;
-      default:
-        throw new Error(`Unsupported feed type: ${feedType}`);
+    // 创建数据源
+    let feed;
+    if (feedType === 'binance') {
+      feed = new BinanceDataFeed();
+    } else if (feedType === 'tse') {
+      feed = new TSEDataFeed();
+    } else {
+      console.error('Unknown feed type:', feedType);
+      return;
     }
     
-    // 创建仪表板元素
+    // 创建仪表板
     const dashboardEl = document.querySelector('.dashboard');
-    
-    // 创建新的仪表板
     this.dashboard = new Dashboard(
       dashboardEl,
-      this.feed,
+      feed,
       symbol,
       tickSize,
       updateInterval,
@@ -48,7 +45,8 @@ export default class DashboardManager {
       theme
     );
     
-    return this.dashboard;
+    // 存储数据源
+    this.feed = feed;
   }
 
   clearDashboard() {

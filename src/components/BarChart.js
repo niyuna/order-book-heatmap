@@ -72,7 +72,7 @@ export default class BarChart {
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
     
-    if (width > 0 && height > 0) {
+    if (width > 0 && height > 0 && this.app && this.app.renderer) {
       this.app.renderer.resize(width, height);
     }
   }
