@@ -9,6 +9,7 @@ import { fmtNum, fmtTime } from '../lib/fmt.js';
 
 export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
+    // construct the orderbook, also it will init in 2s using remote snapshot
     this.book = new OrderBook(feed, symbol, tickSize);
     this.tick = new Tick(tickSize, aggregation);
     this.el = el;
@@ -66,6 +67,11 @@ export default class Dashboard {
     // 扩展存储容量
     this.extendedMaxSeriesLength = maxSeriesLength * 5; // 存储5倍的数据
     
+    // 添加价格定位相关属性
+    this.originPrice = null;  // 原点价格
+    this.priceStepSize = null;  // 价格步长
+    this.priceToYPosition = new Map();  // 价格到Y位置的映射
+    
     // Setup PixiJS applications
     this.setupPixiApplications();
 
@@ -88,27 +94,27 @@ export default class Dashboard {
 
       if (snapshot) {
         this.updateDashboard(snapshot);
-        this.renderHeatmap();
         this.renderTimeAndSales();
+        this.renderHeatmap();
         this.renderLimitOrdersBarChart();
       }
     }, updateInterval);
     this.intervals.push(rerenderInterval);
 
     // recalculate order book intensity every 2 seconds
-    let recalculateDepth = setInterval(() => {
-      let maxDepth = 0;
-      for (let i = 0, l = this.orderbook.length; i < l; i++) {
-        if (this.orderbook[i].value > maxDepth)
-          maxDepth = this.orderbook[i].value;
-      }
+    // let recalculateDepth = setInterval(() => {
+    //   let maxDepth = 0;
+    //   for (let i = 0, l = this.orderbook.length; i < l; i++) {
+    //     if (this.orderbook[i].value > maxDepth)
+    //       maxDepth = this.orderbook[i].value;
+    //   }
 
-      this.maxDepth = maxDepth;
-    }, 2000);
-    this.intervals.push(recalculateDepth);
+    //   this.maxDepth = maxDepth;
+    // }, 2000);
+    // this.intervals.push(recalculateDepth);
 
     // Add event listeners for interactions
-    this.setupEventListeners();
+    // this.setupEventListeners();
   }
 
   async setupPixiApplications() {
@@ -246,86 +252,49 @@ export default class Dashboard {
     }
   }
   
-  setupEventListeners() {
-    // 添加鼠标滚轮事件监听器，阻止页面滚动
-    // this.heatmapApp.canvas.addEventListener('wheel', (event) => {
-    //   // 阻止默认的滚动行为
-    //   event.preventDefault();
-    // }, { passive: false });
+  // setupEventListeners() {
+  //   // 添加鼠标滚轮事件监听器，阻止页面滚动
+  //   this.heatmapApp.canvas.addEventListener('wheel', (event) => {
+  //     // 阻止默认的滚动行为
+  //     event.preventDefault();
+  //   }, { passive: false });
     
-    // // Heatmap interactions
-    // this.heatmapApp.canvas.addEventListener('mousemove', (event) => {
-    //   // 将屏幕坐标转换为世界坐标
-    //   const viewportPoint = this.heatmapViewport.toWorld(event.clientX - this.heatmapApp.canvas.getBoundingClientRect().left, 
-    //                                                      event.clientY - this.heatmapApp.canvas.getBoundingClientRect().top);
+  //   // Heatmap interactions
+  //   this.heatmapApp.canvas.addEventListener('mousemove', (event) => {
+  //     // 将屏幕坐标转换为世界坐标
+  //     const viewportPoint = this.heatmapViewport.toWorld(event.clientX - this.heatmapApp.canvas.getBoundingClientRect().left, 
+  //                                                        event.clientY - this.heatmapApp.canvas.getBoundingClientRect().top);
       
-    //   // 计算单元格索引
-    //   const cellX = Math.floor(viewportPoint.x / this.cellSize.width);
-    //   const cellY = Math.floor(viewportPoint.y / this.cellSize.height);
+  //     // 计算单元格索引
+  //     const cellX = Math.floor(viewportPoint.x / this.cellSize.width);
+  //     const cellY = Math.floor(viewportPoint.y / this.cellSize.height);
       
-    //   // 检查是否有对应的数据点
-    //   if (cellX >= 0 && cellX < this.x.length && cellY >= 0 && cellY < this.y.length) {
-    //     const xValue = this.x[cellX];
-    //     const yValue = this.y[cellY];
+  //     // 检查是否有对应的数据点
+  //     if (cellX >= 0 && cellX < this.x.length && cellY >= 0 && cellY < this.y.length) {
+  //       const xValue = this.x[cellX];
+  //       const yValue = this.y[cellY];
         
-    //     // 查找订单簿数据
-    //     for (const item of this.orderbook) {
-    //       if (item.x === xValue && item.y === yValue) {
-    //         window.tooltip.style.opacity = 1;
-    //         window.tooltip.innerHTML = `${item.type}: ${fmtNum(item.value)}`;
-    //         window.tooltip.style.left = (event.clientX + 10) + 'px';
-    //         window.tooltip.style.top = (event.clientY + 10) + 'px';
-    //         window.tooltip.style.backgroundColor = item.type === 'ask' ? '#faeaea' : '#eafaea';
-    //         window.tooltip.style.borderColor = item.type === 'ask' ? 'red' : 'green';
-    //         return;
-    //       }
-    //     }
-        
-    //     // 查找市场订单增量点
-    //     for (const delta of this.mktOrderDeltas) {
-    //       if (delta.x === xValue && delta.y === yValue) {
-    //         window.tooltip.style.opacity = 1;
-    //         window.tooltip.innerHTML = delta.msgHTML;
-    //         window.tooltip.style.left = (event.clientX + 10) + 'px';
-    //         window.tooltip.style.top = (event.clientY + 10) + 'px';
-    //         window.tooltip.style.backgroundColor = delta.type === 'ask' ? '#faeaea' : '#eafaea';
-    //         window.tooltip.style.borderColor = delta.type === 'ask' ? 'red' : 'green';
-    //         return;
-    //       }
-    //     }
-    //   }
+  //       // 查找订单簿数据
+  //       for (const item of this.orderbook) {
+  //         if (item.x === xValue && item.y === yValue) {
+  //           window.tooltip.style.opacity = 1;
+  //           window.tooltip.innerHTML = `${item.type}: ${fmtNum(item.value)}`;
+  //           window.tooltip.style.left = (event.clientX + 10) + 'px';
+  //           window.tooltip.style.top = (event.clientY + 10) + 'px';
+  //           window.tooltip.style.backgroundColor = item.type === 'ask' ? '#faeaea' : '#eafaea';
+  //           window.tooltip.style.borderColor = item.type === 'ask' ? 'red' : 'green';
+  //           return;
+  //         }
+  //       }
+  //     }
       
-    //   window.tooltip.style.opacity = 0;
-    // });
+  //     window.tooltip.style.opacity = 0;
+  //   });
     
-    // this.heatmapApp.canvas.addEventListener('mouseout', () => {
-    //   window.tooltip.style.opacity = 0;
-    // });
-    
-    // // Bar chart interactions
-    // this.barChartApp.canvas.addEventListener('mousemove', (event) => {
-    //   const rect = this.barChartApp.canvas.getBoundingClientRect();
-    //   const x = event.clientX - rect.left;
-    //   const y = event.clientY - rect.top;
-      
-    //   const dataPoint = this.getDataPointFromCoordinates(x, y, 'barchart');
-    //   if (dataPoint) {
-    //     window.tooltip.style.opacity = 1;
-    //     window.tooltip.innerHTML = `Price: ${dataPoint.data.y}<br/>
-    //                                ${dataPoint.data.type}: ${fmtNum(dataPoint.data.value)}`;
-    //     window.tooltip.style.left = (event.clientX + 10) + 'px';
-    //     window.tooltip.style.top = (event.clientY + 10) + 'px';
-    //     window.tooltip.style.backgroundColor = dataPoint.data.type === 'ask' ? '#faeaea' : '#eafaea';
-    //     window.tooltip.style.borderColor = dataPoint.data.type === 'ask' ? 'red' : 'green';
-    //   } else {
-    //     window.tooltip.style.opacity = 0;
-    //   }
-    // });
-    
-    // this.barChartApp.canvas.addEventListener('mouseout', () => {
-    //   window.tooltip.style.opacity = 0;
-    // });
-  }
+  //   this.heatmapApp.canvas.addEventListener('mouseout', () => {
+  //     window.tooltip.style.opacity = 0;
+  //   });
+  // }
   
   getDataPointFromCoordinates(x, y, chartType) {
     if (chartType === 'heatmap') {
@@ -446,7 +415,20 @@ export default class Dashboard {
     }
     
     // 对价格进行排序（从高到低）
-    this.y.sort((a, b) => parseFloat(b) - parseFloat(a));
+    this.y.sort((a, b) => this.tick.parse(b) - this.tick.parse(a));
+    
+    // 如果是第一个快照，设置原点价格和价格步长
+    if (this.originPrice === null) {
+      // 使用中间价格作为原点
+      const midIndex = Math.floor(this.y.length / 2);
+      this.originPrice = this.tick.parse(this.y[midIndex]);
+      
+      // 使用 tick.js 提供的 stepSize 而不是自己计算
+      this.priceStepSize = this.tick.stepSize;
+      
+      // 初始化价格到Y位置的映射
+      this.updatePricePositions();
+    }
     
     // 更新订单簿数据
     for (let i = 0; i < this.levels + this.bufferLevels; i++) {
@@ -478,11 +460,8 @@ export default class Dashboard {
         this.maxDepth = snapshot.aggBidSizes[i];
     }
     
-    // 限制订单簿大小
-    const maxOrderbookLength = this.extendedMaxSeriesLength * (this.levels + this.bufferLevels) * 2;
-    if (this.orderbook.length > maxOrderbookLength) {
-      this.orderbook = this.orderbook.slice(this.orderbook.length - maxOrderbookLength);
-    }
+    // 更新价格到Y位置的映射
+    this.updatePricePositions();
     
     // 更新其他数据...
     this.ask = snapshot.ask;
@@ -563,11 +542,25 @@ export default class Dashboard {
     // this.scrollToLatestData();
   }
 
+  // 更新价格到Y位置的映射
+  updatePricePositions() {
+    this.priceToYPosition.clear();
+    
+    for (const price of this.y) {
+      const priceDiff = this.tick.parse(price) - this.originPrice;
+      const yPosition = -priceDiff / this.priceStepSize;  // 负号是因为价格越高，y坐标越小
+      this.priceToYPosition.set(price, yPosition);
+    }
+  }
+
+  // 修改 addCell 方法，使用价格差值计算Y位置
   addCell(data) {
     const xIndex = this.x.indexOf(data.x);
-    const yIndex = this.y.indexOf(data.y);
+    if (xIndex === -1) return;
     
-    if (xIndex === -1 || yIndex === -1) return;
+    // 使用价格到Y位置的映射获取Y位置
+    const yPosition = this.priceToYPosition.get(data.y);
+    if (yPosition === undefined) return;
     
     const key = `${data.x}-${data.y}`;
     let cell = this.cellMap.get(key);
@@ -609,23 +602,61 @@ export default class Dashboard {
     cell.beginFill(color);
     cell.drawRect(
       xIndex * this.cellSize.width,
-      yIndex * this.cellSize.height,
+      (yPosition + this.levels) * this.cellSize.height,  // 添加偏移量确保所有价格都在可见区域内
       this.cellSize.width,
       this.cellSize.height
     );
     cell.endFill();
+    
+    // 使单元格可交互
+    cell.eventMode = 'static';
+    
+    // 存储单元格相关数据
+    cell.cellData = data;
+    cell.cellX = xIndex * this.cellSize.width;
+    cell.cellY = (yPosition + this.levels) * this.cellSize.height;
+    
+    // 添加鼠标悬停事件
+    cell.on('pointerover', (event) => {
+      // 显示工具提示
+      window.tooltip.style.opacity = 1;
+      window.tooltip.innerHTML = `Price: ${data.y}<br/>${data.type}: ${fmtNum(data.value)}`;
+      
+      // 获取鼠标在屏幕上的位置
+      const viewportPoint = this.heatmapViewport.toScreen(cell.cellX + this.cellSize.width/2, cell.cellY + this.cellSize.height/2);
+      window.tooltip.style.left = (viewportPoint.x + 10) + 'px';
+      window.tooltip.style.top = (viewportPoint.y - 10) + 'px';
+      
+      window.tooltip.style.backgroundColor = data.type === 'ask' ? '#faeaea' : '#eafaea';
+      window.tooltip.style.borderColor = data.type === 'ask' ? 'red' : 'green';
+    });
+    
+    // 添加鼠标移出事件
+    cell.on('pointerout', () => {
+      // 隐藏工具提示
+      window.tooltip.style.opacity = 0;
+    });
+    
+    // 添加鼠标移动事件，更新工具提示位置
+    cell.on('pointermove', (event) => {
+      const globalPos = event.global;
+      window.tooltip.style.left = (globalPos.x + 10) + 'px';
+      window.tooltip.style.top = (globalPos.y - 10) + 'px';
+    });
   }
   
+  // 同样修改 addDelta 方法，使用价格差值计算Y位置
   addDelta(delta) {
     const xIndex = this.x.indexOf(delta.x);
-    const yIndex = this.y.indexOf(delta.y);
+    if (xIndex === -1) return;
     
-    if (xIndex === -1 || yIndex === -1 || delta.totalSize <= 0) return;
+    // 使用价格到Y位置的映射获取Y位置
+    const yPosition = this.priceToYPosition.get(delta.y);
+    if (yPosition === undefined) return;
     
     const key = `delta-${delta.x}-${delta.y}`;
     let circle = this.deltaMap.get(key);
     
-    // 如果增量点不存在，创建一个新的
     if (!circle) {
       circle = new PIXI.Graphics();
       this.heatmapDeltasContainer.addChild(circle);
@@ -645,16 +676,68 @@ export default class Dashboard {
     const colorRange = delta.type === 'ask' ? ["#ff9100", "#fff400"] : ["#00d7ff", "#56fffa"];
     const hexColor = this.interpolateColor(colorRange[0], colorRange[1], factor);
     const color = parseInt(hexColor.replace('#', '0x'));
+    const hoverColor = delta.type === 'ask' ? 0xff0000 : 0x00aaff;
     
     // 更新增量点
     circle.clear();
     circle.beginFill(color);
     circle.drawCircle(
       (xIndex + 0.5) * this.cellSize.width,
-      (yIndex + 0.5) * this.cellSize.height,
+      ((yPosition + this.levels) + 0.5) * this.cellSize.height,
       radius
     );
     circle.endFill();
+    
+    // 使圆点可交互
+    circle.eventMode = 'static';
+    
+    // 存储圆点相关数据
+    circle.deltaData = delta;
+    circle.originalColor = color;
+    circle.hoverColor = hoverColor;
+    circle.centerX = (xIndex + 0.5) * this.cellSize.width;
+    circle.centerY = ((yPosition + this.levels) + 0.5) * this.cellSize.height;
+    circle.radius = radius;
+    
+    // 添加鼠标悬停事件
+    circle.on('pointerover', (event) => {
+      // 高亮显示圆点
+      circle.clear();
+      circle.beginFill(circle.hoverColor);
+      circle.drawCircle(circle.centerX, circle.centerY, circle.radius);
+      circle.endFill();
+      
+      // 显示工具提示
+      window.tooltip.style.opacity = 1;
+      window.tooltip.innerHTML = delta.msgHTML;
+      
+      // 获取鼠标在屏幕上的位置
+      const viewportPoint = this.heatmapViewport.toScreen(circle.centerX, circle.centerY);
+      window.tooltip.style.left = (viewportPoint.x + 10) + 'px';
+      window.tooltip.style.top = (viewportPoint.y - 10) + 'px';
+      
+      window.tooltip.style.backgroundColor = delta.type === 'ask' ? '#faeaea' : '#eafaea';
+      window.tooltip.style.borderColor = delta.type === 'ask' ? 'red' : 'green';
+    });
+    
+    // 添加鼠标移出事件
+    circle.on('pointerout', () => {
+      // 恢复圆点原始颜色
+      circle.clear();
+      circle.beginFill(circle.originalColor);
+      circle.drawCircle(circle.centerX, circle.centerY, circle.radius);
+      circle.endFill();
+      
+      // 隐藏工具提示
+      window.tooltip.style.opacity = 0;
+    });
+    
+    // 添加鼠标移动事件，更新工具提示位置
+    circle.on('pointermove', (event) => {
+      const globalPos = event.global;
+      window.tooltip.style.left = (globalPos.x + 10) + 'px';
+      window.tooltip.style.top = (globalPos.y - 10) + 'px';
+    });
   }
   
   cleanupOldCells() {
@@ -856,11 +939,51 @@ export default class Dashboard {
       const y = height - barHeight;
       
       const color = lvl.type === 'bid' ? 0x073247 : 0x2e0704;
+      const hoverColor = lvl.type === 'bid' ? 0x00aaff : 0xff0000;
       
+      // 创建条形
       const bar = new PIXI.Graphics();
-      bar.beginFill(color);
-      bar.drawRect(x, y, barWidth * 0.8, barHeight);
-      bar.endFill();
+      bar.rect(x, y, barWidth * 0.8, barHeight);
+      bar.fill({ color });
+      
+      // 使条形可交互
+      bar.eventMode = 'static';
+      
+      // 存储条形相关数据
+      bar.lvlData = lvl;
+      
+      // 添加鼠标悬停事件
+      bar.on('pointerover', (event) => {
+        // 高亮显示条形
+        bar.clear();
+        bar.rect(x, y, barWidth * 0.8, barHeight);
+        bar.fill({ color: hoverColor });
+        
+        // 显示工具提示
+        window.tooltip.style.opacity = 1;
+        window.tooltip.innerHTML = `Price: ${lvl.y}<br/>${lvl.type}: ${fmtNum(lvl.value)}`;
+        window.tooltip.style.left = (event.clientX + 10) + 'px';
+        window.tooltip.style.top = (event.clientY - 10) + 'px';
+        window.tooltip.style.backgroundColor = lvl.type === 'ask' ? '#faeaea' : '#eafaea';
+        window.tooltip.style.borderColor = lvl.type === 'ask' ? 'red' : 'green';
+      });
+      
+      // 添加鼠标移出事件
+      bar.on('pointerout', () => {
+        // 恢复条形原始颜色
+        bar.clear();
+        bar.rect(x, y, barWidth * 0.8, barHeight);
+        bar.fill({ color });
+        
+        // 隐藏工具提示
+        window.tooltip.style.opacity = 0;
+      });
+      
+      // 添加鼠标移动事件，更新工具提示位置
+      bar.on('pointermove', (event) => {
+        window.tooltip.style.left = (event.clientX + 10) + 'px';
+        window.tooltip.style.top = (event.clientY + 10) + 'px';
+      });
       
       this.barChartBarsContainer.addChild(bar);
     }
