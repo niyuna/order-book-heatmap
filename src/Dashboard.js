@@ -6,6 +6,7 @@ import OrderBook from '../lib/BinanceOrderBook.js';
 import Tick from '../lib/Tick.js';
 import { numCompare } from '../lib/utils.js'; 
 import { fmtNum, fmtTime } from '../lib/fmt.js';
+import TradesTable from './components/TradesTable.js';
 
 export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
@@ -71,6 +72,9 @@ export default class Dashboard {
     this.originPrice = null;  // 原点价格
     this.priceStepSize = null;  // 价格步长
     this.priceToYPosition = new Map();  // 价格到Y位置的映射
+    
+    // 初始化交易表格
+    this.tradesTable = new TradesTable(this.el.querySelector('.trades'), this.tick);
     
     // Setup PixiJS applications
     this.setupPixiApplications();
@@ -857,36 +861,8 @@ export default class Dashboard {
   }
 
   renderTimeAndSales() {
-    const tradesWrapper = this.el.querySelector('.trades');
-    if (tradesWrapper.style.display === 'none') {
-      tradesWrapper.style.display = '';
-    }
-
-    const trades = this.el.querySelector('.trades-body');
-    
-    // Clear existing rows
-    while (trades.firstChild) {
-      trades.removeChild(trades.firstChild);
-    }
-
-    // push all recent trades ordered by timestamp & label them as buy / sell
-    for (let i = 0; i < this.trades.length; i++) {
-      const row = trades.insertRow(0);
-      row.classList = this.trades[i].isBuy ? 'buy' : 'sell';
-      row.classList += this.trades[i].size >= this.topTradeSize ? ' top-trade' : '';
-
-      let cell = row.insertCell();
-      let text = document.createTextNode(this.trades[i].size);
-      cell.appendChild(text);
- 
-      cell = row.insertCell();
-      text = document.createTextNode(this.tick.parse(this.trades[i].price));
-      cell.appendChild(text);
-
-      cell = row.insertCell();
-      text = document.createTextNode(this.trades[i].time);
-      cell.appendChild(text);
-    }
+    // 使用 TradesTable 组件更新交易表格
+    this.tradesTable.update(this.trades, this.topTradeSize);
   }
 
   renderLimitOrdersBarChart() {
