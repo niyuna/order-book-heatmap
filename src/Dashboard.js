@@ -1,7 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 
-import DataFeed from '../lib/BinanceDataFeed.js';
 import OrderBook from '../lib/BinanceOrderBook.js';
 import Tick from '../lib/Tick.js';
 import { numCompare } from '../lib/utils.js'; 
@@ -88,11 +87,16 @@ export default class Dashboard {
       window.tooltip = document.createElement('div');
       window.tooltip.className = 'tooltip';
       window.tooltip.style.opacity = 0;
-      window.tooltip.style.position = 'absolute';
+      window.tooltip.style.position = 'fixed';
       window.tooltip.style.border = 'solid';
       window.tooltip.style.borderWidth = '2px';
       window.tooltip.style.borderRadius = '5px';
       window.tooltip.style.padding = '5px';
+      window.tooltip.style.maxWidth = '250px';
+      window.tooltip.style.backgroundColor = '#ffffff';
+      window.tooltip.style.color = '#000000';
+      window.tooltip.style.zIndex = '1000';
+      window.tooltip.style.pointerEvents = 'none';
       document.body.appendChild(window.tooltip);
     }
 
@@ -195,6 +199,9 @@ export default class Dashboard {
     
     // 处理窗口大小调整
     window.addEventListener('resize', () => this.resizePixiApplications());
+
+    // 设置工具提示的初始位置
+    this.updateTooltipPosition();
   }
   
   resizePixiApplications() {
@@ -215,10 +222,19 @@ export default class Dashboard {
       this.cellSize.height * (this.levels * 2)
     );
     
+    // 触发条形图的 resize 方法
+    if (this.barChart) {
+      this.barChart.resize();
+    }
+    
     // 强制重绘热图（如果有数据）
     if (this.x.length > 0 && this.y.length > 0) {
       this.renderHeatmap();
+      this.renderLimitOrdersBarChart();
     }
+
+    // 更新工具提示位置
+    this.updateTooltipPosition();
   }
   
   getDataPointFromCoordinates(x, y, chartType) {
@@ -547,10 +563,8 @@ export default class Dashboard {
       window.tooltip.style.opacity = 1;
       window.tooltip.innerHTML = `Price: ${data.y}<br/>${data.type}: ${fmtNum(data.value)}`;
       
-      // 获取鼠标在屏幕上的位置
-      const viewportPoint = this.heatmapViewport.toScreen(cell.cellX + this.cellSize.width/2, cell.cellY + this.cellSize.height/2);
-      window.tooltip.style.left = (viewportPoint.x + 10) + 'px';
-      window.tooltip.style.top = (viewportPoint.y - 10) + 'px';
+      // 使用固定位置，不再跟随鼠标
+      // 不需要更新位置，因为已经在右上角固定了
       
       window.tooltip.style.backgroundColor = data.type === 'ask' ? '#faeaea' : '#eafaea';
       window.tooltip.style.borderColor = data.type === 'ask' ? 'red' : 'green';
@@ -560,13 +574,6 @@ export default class Dashboard {
     cell.on('pointerout', () => {
       // 隐藏工具提示
       window.tooltip.style.opacity = 0;
-    });
-    
-    // 添加鼠标移动事件，更新工具提示位置
-    cell.on('pointermove', (event) => {
-      const globalPos = event.global;
-      window.tooltip.style.left = (globalPos.x + 10) + 'px';
-      window.tooltip.style.top = (globalPos.y - 10) + 'px';
     });
   }
   
@@ -636,10 +643,8 @@ export default class Dashboard {
       window.tooltip.style.opacity = 1;
       window.tooltip.innerHTML = delta.msgHTML;
       
-      // 获取鼠标在屏幕上的位置
-      const viewportPoint = this.heatmapViewport.toScreen(circle.centerX, circle.centerY);
-      window.tooltip.style.left = (viewportPoint.x + 10) + 'px';
-      window.tooltip.style.top = (viewportPoint.y - 10) + 'px';
+      // 使用固定位置，不再跟随鼠标
+      // 不需要更新位置，因为已经在右上角固定了
       
       window.tooltip.style.backgroundColor = delta.type === 'ask' ? '#faeaea' : '#eafaea';
       window.tooltip.style.borderColor = delta.type === 'ask' ? 'red' : 'green';
@@ -655,13 +660,6 @@ export default class Dashboard {
       
       // 隐藏工具提示
       window.tooltip.style.opacity = 0;
-    });
-    
-    // 添加鼠标移动事件，更新工具提示位置
-    circle.on('pointermove', (event) => {
-      const globalPos = event.global;
-      window.tooltip.style.left = (globalPos.x + 10) + 'px';
-      window.tooltip.style.top = (globalPos.y - 10) + 'px';
     });
   }
   
@@ -716,8 +714,10 @@ export default class Dashboard {
     const visibleBounds = this.heatmapViewport.getVisibleBounds();
     const startX = Math.floor(visibleBounds.x / this.cellSize.width);
     const endX = Math.ceil((visibleBounds.x + visibleBounds.width) / this.cellSize.width);
-    const startY = Math.floor(visibleBounds.y / this.cellSize.height);
-    const endY = Math.ceil((visibleBounds.y + visibleBounds.height) / this.cellSize.height);
+    
+    // 计算可见的价格范围
+    const startWorldY = visibleBounds.y;
+    const endWorldY = visibleBounds.y + visibleBounds.height;
     
     // 绘制 x 轴
     const xAxis = new PIXI.Graphics();
@@ -751,17 +751,36 @@ export default class Dashboard {
     this.heatmapAxesContainer.addChild(yAxisRight);
     
     // 绘制 y 轴标签（右侧）
-    const yLabelPeriod = Math.ceil((endY - startY) / 10);
-    for (let i = startY; i < endY; i += yLabelPeriod) {
-      if (i >= 0 && i < this.y.length) {
-        const worldY = i * this.cellSize.height;
-        const screenY = this.heatmapViewport.toScreen(0, worldY).y;
-        
-        const label = new PIXI.Text(this.y[i], textStyle);
-        label.anchor.set(0, 0.5);
-        label.position.set(this.heatmapApp.screen.width - rightMargin + 5, screenY);
-        this.heatmapAxesContainer.addChild(label);
-      }
+    // 使用价格步长计算标签间隔
+    const cellsInView = (endWorldY - startWorldY) / this.cellSize.height;
+    const yLabelCount = Math.min(10, cellsInView); // 最多显示10个标签
+    const yLabelInterval = this.cellSize.height * Math.ceil(cellsInView / yLabelCount);
+    
+    // 计算起始位置（对齐到单元格网格）
+    const startYAligned = Math.floor(startWorldY / this.cellSize.height) * this.cellSize.height;
+    
+    // 绘制标签
+    for (let worldY = startYAligned; worldY < endWorldY; worldY += yLabelInterval) {
+      // 将世界坐标转换为价格
+      // 注意：worldY = (yPosition + this.levels) * this.cellSize.height
+      // 所以 yPosition = worldY / this.cellSize.height - this.levels
+      const yPosition = worldY / this.cellSize.height - this.levels;
+      
+      // 从 yPosition 计算价格
+      const priceDiff = -yPosition * this.priceStepSize; // 负号是因为在 updatePricePositions 中使用了负号
+      const price = this.originPrice + priceDiff;
+      
+      // 格式化价格
+      const formattedPrice = this.tick.parse(price);
+      
+      // 转换为屏幕坐标
+      const screenY = this.heatmapViewport.toScreen(0, worldY).y;
+      
+      // 创建标签
+      const label = new PIXI.Text(formattedPrice, textStyle);
+      label.anchor.set(0, 0.5);
+      label.position.set(this.heatmapApp.screen.width - rightMargin + 5, screenY);
+      this.heatmapAxesContainer.addChild(label);
     }
   }
   
@@ -840,5 +859,36 @@ export default class Dashboard {
     if (this.barChart) {
       this.barChart.destroy();
     }
+  }
+
+  // 修改 updateTooltipPosition 方法
+  updateTooltipPosition() {
+    const heatmapEl = this.el.querySelector('.heatmap-wrapper');
+    
+    // 确保热图元素存在
+    if (!heatmapEl) return;
+    
+    // 获取热图元素的位置和尺寸
+    const rect = heatmapEl.getBoundingClientRect();
+    
+    // 确保获取到了有效的位置
+    if (rect.width === 0 || rect.height === 0) return;
+    
+    // 设置工具提示在热图右上角
+    // 使用 position: fixed 可以相对于视口定位，避免滚动问题
+    window.tooltip.style.position = 'fixed';
+    window.tooltip.style.left = (rect.left + rect.width + 50) + 'px'; // 距离右边缘 260px
+    window.tooltip.style.top = (rect.top + 10) + 'px'; // 距离顶部 10px
+    
+    // 确保工具提示不会超出视口
+    const tooltipWidth = 250; // 工具提示的最大宽度
+    const rightEdge = rect.left + rect.width - 10;
+    const leftPosition = Math.max(10, Math.min(rightEdge - tooltipWidth, rightEdge - 10));
+    
+    window.tooltip.style.left = leftPosition + 'px';
+    
+    // 调试信息
+    console.log('Heatmap rect:', rect);
+    console.log('Tooltip position:', { left: window.tooltip.style.left, top: window.tooltip.style.top });
   }
 }

@@ -48,4 +48,9 @@ export default class TradesTable {
       cell.appendChild(text);
     }
   }
+
+  resize() {
+    // 如果需要在窗口大小变化时调整表格样式，可以在这里添加逻辑
+    // 例如，调整行高、字体大小等
+  }
 } 
