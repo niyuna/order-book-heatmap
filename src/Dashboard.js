@@ -7,6 +7,7 @@ import Tick from '../lib/Tick.js';
 import { numCompare } from '../lib/utils.js'; 
 import { fmtNum, fmtTime } from '../lib/fmt.js';
 import TradesTable from './components/TradesTable.js';
+import BarChart from './components/BarChart.js';
 
 export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
@@ -76,6 +77,9 @@ export default class Dashboard {
     // 初始化交易表格
     this.tradesTable = new TradesTable(this.el.querySelector('.trades'), this.tick);
     
+    // 初始化条形图
+    this.barChart = new BarChart(this.el.querySelector('.limit-orders-bar-chart'));
+    
     // Setup PixiJS applications
     this.setupPixiApplications();
 
@@ -122,20 +126,15 @@ export default class Dashboard {
   }
 
   async setupPixiApplications() {
-    // Remove any existing elements
+    // 只处理热图，条形图已经由 BarChart 组件处理
     const heatmapEl = this.el.querySelector('.heatmap');
-    const barChartEl = this.el.querySelector('.limit-orders-bar-chart');
     
-    // Remove existing canvas or SVG elements
+    // 清空热图容器
     while (heatmapEl.firstChild) {
       heatmapEl.removeChild(heatmapEl.firstChild);
     }
     
-    while (barChartEl.firstChild) {
-      barChartEl.removeChild(barChartEl.firstChild);
-    }
-    
-    // Create PixiJS applications
+    // 创建热图 PixiJS 应用
     this.heatmapApp = new PIXI.Application();
     await this.heatmapApp.init({
       background: '#000000',
@@ -144,32 +143,17 @@ export default class Dashboard {
       autoDensity: true,
     });
     
-    this.barChartApp = new PIXI.Application();
-    await this.barChartApp.init({
-      background: '#000000',
-      antialias: true,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-    });
-    
-    // Add PixiJS views to DOM
+    // 添加热图视图到 DOM
     heatmapEl.appendChild(this.heatmapApp.canvas);
-    barChartEl.appendChild(this.barChartApp.canvas);
     
+    // 阻止滚轮事件引起页面滚动
     heatmapEl.addEventListener('wheel', (event) => {
-      // 阻止默认的滚动行为
       event.preventDefault();
     }, { passive: false });
-    barChartEl.addEventListener('wheel', (event) => {
-      // 阻止默认的滚动行为
-      event.preventDefault();
-    }, { passive: false });
-
-    // Set view styles
+    
+    // 设置热图视图样式
     this.heatmapApp.canvas.style.width = '100%';
     this.heatmapApp.canvas.style.height = '100%';
-    this.barChartApp.canvas.style.width = '100%';
-    this.barChartApp.canvas.style.height = '100%';
     
     // 创建 Viewport
     this.heatmapViewport = new Viewport({
@@ -177,7 +161,6 @@ export default class Dashboard {
       screenHeight: this.heatmapApp.screen.height,
       worldWidth: this.cellSize.width * this.extendedMaxSeriesLength,
       worldHeight: this.cellSize.height * (this.levels * 2),
-      // interaction: this.heatmapApp.renderer.plugins.interaction
       events: this.heatmapApp.renderer.events
     });
     
@@ -187,20 +170,15 @@ export default class Dashboard {
       .pinch()
       .wheel()
       .decelerate()
-      // 添加事件监听器，在移动或缩放后更新坐标轴
       .on('moved', () => this.renderHeatmapAxes())
       .on('zoomed', () => this.renderHeatmapAxes())
       .on('moved-end', () => this.renderHeatmapAxes())
       .on('zoomed-end', () => this.renderHeatmapAxes());
     
-    // 创建容器
+    // 创建热图容器
     this.heatmapCellsContainer = new PIXI.Container();
     this.heatmapDeltasContainer = new PIXI.Container();
     this.heatmapAxesContainer = new PIXI.Container();
-    
-    this.barChartContainer = new PIXI.Container();
-    this.barChartBarsContainer = new PIXI.Container();
-    this.barChartAxesContainer = new PIXI.Container();
     
     // 添加容器到 Viewport
     this.heatmapViewport.addChild(this.heatmapCellsContainer);
@@ -212,11 +190,6 @@ export default class Dashboard {
     // 坐标轴容器添加到主舞台，不受 viewport 影响
     this.heatmapApp.stage.addChild(this.heatmapAxesContainer);
     
-    // 添加条形图容器到舞台
-    this.barChartApp.stage.addChild(this.barChartContainer);
-    this.barChartContainer.addChild(this.barChartBarsContainer);
-    this.barChartContainer.addChild(this.barChartAxesContainer);
-    
     // 设置初始大小
     this.resizePixiApplications();
     
@@ -227,19 +200,12 @@ export default class Dashboard {
   resizePixiApplications() {
     const uiBarEl = document.querySelector('.ui');
     const heatmapEl = this.el.querySelector('.heatmap');
-    const barChartEl = this.el.querySelector('.limit-orders-bar-chart');
     
-    // Set heatmap size
+    // 设置热图大小
     const heatmapWidth = heatmapEl.clientWidth || window.innerWidth * 0.66;
     const heatmapHeight = window.innerHeight - (uiBarEl ? uiBarEl.clientHeight : 0) - 7;
     
     this.heatmapApp.renderer.resize(heatmapWidth, heatmapHeight);
-    
-    // Set bar chart size
-    const barChartWidth = barChartEl.clientWidth;
-    const barChartHeight = barChartEl.clientHeight;
-    
-    this.barChartApp.renderer.resize(barChartWidth, barChartHeight);
     
     // 更新 Viewport 大小
     this.heatmapViewport.resize(
@@ -249,56 +215,11 @@ export default class Dashboard {
       this.cellSize.height * (this.levels * 2)
     );
     
-    // Force redraw if we have data
+    // 强制重绘热图（如果有数据）
     if (this.x.length > 0 && this.y.length > 0) {
       this.renderHeatmap();
-      this.renderLimitOrdersBarChart();
     }
   }
-  
-  // setupEventListeners() {
-  //   // 添加鼠标滚轮事件监听器，阻止页面滚动
-  //   this.heatmapApp.canvas.addEventListener('wheel', (event) => {
-  //     // 阻止默认的滚动行为
-  //     event.preventDefault();
-  //   }, { passive: false });
-    
-  //   // Heatmap interactions
-  //   this.heatmapApp.canvas.addEventListener('mousemove', (event) => {
-  //     // 将屏幕坐标转换为世界坐标
-  //     const viewportPoint = this.heatmapViewport.toWorld(event.clientX - this.heatmapApp.canvas.getBoundingClientRect().left, 
-  //                                                        event.clientY - this.heatmapApp.canvas.getBoundingClientRect().top);
-      
-  //     // 计算单元格索引
-  //     const cellX = Math.floor(viewportPoint.x / this.cellSize.width);
-  //     const cellY = Math.floor(viewportPoint.y / this.cellSize.height);
-      
-  //     // 检查是否有对应的数据点
-  //     if (cellX >= 0 && cellX < this.x.length && cellY >= 0 && cellY < this.y.length) {
-  //       const xValue = this.x[cellX];
-  //       const yValue = this.y[cellY];
-        
-  //       // 查找订单簿数据
-  //       for (const item of this.orderbook) {
-  //         if (item.x === xValue && item.y === yValue) {
-  //           window.tooltip.style.opacity = 1;
-  //           window.tooltip.innerHTML = `${item.type}: ${fmtNum(item.value)}`;
-  //           window.tooltip.style.left = (event.clientX + 10) + 'px';
-  //           window.tooltip.style.top = (event.clientY + 10) + 'px';
-  //           window.tooltip.style.backgroundColor = item.type === 'ask' ? '#faeaea' : '#eafaea';
-  //           window.tooltip.style.borderColor = item.type === 'ask' ? 'red' : 'green';
-  //           return;
-  //         }
-  //       }
-  //     }
-      
-  //     window.tooltip.style.opacity = 0;
-  //   });
-    
-  //   this.heatmapApp.canvas.addEventListener('mouseout', () => {
-  //     window.tooltip.style.opacity = 0;
-  //   });
-  // }
   
   getDataPointFromCoordinates(x, y, chartType) {
     if (chartType === 'heatmap') {
@@ -401,7 +322,7 @@ export default class Dashboard {
   updateDashboard(snapshot) {
     // 计算时间戳
     const ts = fmtTime(new Date(), this.updateInterval);
-    
+
     // 更新 x 轴（时间戳）
     this.x.push(ts);
     if (this.x.length > this.extendedMaxSeriesLength) {
@@ -442,7 +363,7 @@ export default class Dashboard {
         x: ts,
         type: 'ask',
       };
-      
+
       const bidData = {
         value: snapshot.aggBidSizes[i],
         y: snapshot.aggBidPrices[i],
@@ -463,7 +384,7 @@ export default class Dashboard {
       if (snapshot.aggBidSizes[i] > this.maxDepth)
         this.maxDepth = snapshot.aggBidSizes[i];
     }
-    
+
     // 更新价格到Y位置的映射
     this.updatePricePositions();
     
@@ -483,7 +404,7 @@ export default class Dashboard {
       this.askLine.shift();
       this.bidLine.shift();
     }
-    
+
     // 更新市场买入/卖出数据...
     this.mktBuys.push({
       value: snapshot.stats.mktBuySize,
@@ -491,14 +412,14 @@ export default class Dashboard {
       vwap: snapshot.stats.avgBuyVWAP,
       x: ts
     });
-    
+
     this.mktSells.push({
       value: snapshot.stats.mktSellSize,
       count: snapshot.stats.mktSellOrders,
       vwap: snapshot.stats.avgSellVWAP,
       x: ts
     });
-    
+
     const sizeDelta = snapshot.stats.mktBuySize - snapshot.stats.mktSellSize;
     const totalTradedSize = snapshot.stats.mktBuySize + snapshot.stats.mktSellSize;
     let delta = {
@@ -506,12 +427,12 @@ export default class Dashboard {
       value: Math.abs(snapshot.stats.mktBuySize - snapshot.stats.mktSellSize),
       totalSize: this.tick.round(totalTradedSize),
     };
-    
+
     // 工具提示消息
     delta.msgHTML = `${delta.totalSize} contracts traded<br/>`;
     delta.msgHTML = `${delta.msgHTML}${snapshot.stats.mktBuySize} contracts bought (${snapshot.stats.mktBuyOrders}) orders<br/>`;
     delta.msgHTML = `${delta.msgHTML}${snapshot.stats.mktSellSize} contracts sold (${snapshot.stats.mktSellOrders}) orders`;
-    
+
     if (sizeDelta > 0) {
       delta.y = snapshot.stats.avgBuyVWAP;
       delta.type = 'bid';
@@ -519,23 +440,23 @@ export default class Dashboard {
       delta.y = snapshot.stats.avgSellVWAP;
       delta.type = 'ask';
     }
-    
+
     this.mktOrderDeltas.push(delta);
-    
+
     // 添加新的增量点
     this.addDelta(delta);
-    
+
     if (this.mktBuys.length > this.extendedMaxSeriesLength) {
       this.mktBuys.shift();
       this.mktSells.shift();
       this.mktOrderDeltas.shift();
     }
-    
+
     // 更新交易
     this.trades = this.trades.concat(snapshot.trades);
     if (this.trades.length > this.extendedMaxSeriesLength)
       this.trades = this.trades.slice(this.trades.length - this.extendedMaxSeriesLength);
-    
+
     const sortedTrades = this.trades
       .map(trade => trade.size)
       .sort((a, b) => a - b);
@@ -590,7 +511,7 @@ export default class Dashboard {
       
       // 设置颜色范围
       let colorRange;
-      if (this.heatmap.theme === 'bw') {
+    if (this.heatmap.theme === 'bw') {
         colorRange = data.type === 'bid' ? ["#222222", "#ffffff"] : ["#222222", "#ffffff"];
       } else {
         colorRange = data.type === 'bid' ? ["#073247", "#00aaff"] : ["#2e0704", "#ff0000"];
@@ -866,18 +787,7 @@ export default class Dashboard {
   }
 
   renderLimitOrdersBarChart() {
-    const margin = { top: 20, right: 40, bottom: 25, left: 0 };
-    const width = this.barChartApp.renderer.width - margin.left - margin.right;
-    const height = this.barChartApp.renderer.height - margin.top - margin.bottom;
-    
-    // Clear containers
-    this.barChartBarsContainer.removeChildren();
-    this.barChartAxesContainer.removeChildren();
-    
-    // Set container position
-    this.barChartContainer.position.set(margin.left, margin.top);
-    
-    // Prepare data
+    // 准备数据
     let askLevels = [];
     let bidLevels = [];
 
@@ -896,120 +806,11 @@ export default class Dashboard {
         bidLevels.push(lvl);
     }
 
-    // Sort prices from low to high for x-axis
+    // 对价格从低到高排序，用于 x 轴
     const sortedPrices = [...this.y].sort((a, b) => parseFloat(a) - parseFloat(b));
     
-    // Calculate bar width
-    const barWidth = width / sortedPrices.length;
-    
-    // Find max value for scaling
-    const max = Math.max(...[...askLevels, ...bidLevels].map(lvl => lvl.value), 1);
-    
-    // Draw bars
-    for (const lvl of [...askLevels, ...bidLevels]) {
-      const priceIndex = sortedPrices.indexOf(lvl.y);
-      if (priceIndex === -1) continue;
-      
-      const x = priceIndex * barWidth;
-      const barHeight = (lvl.value / max) * height;
-      const y = height - barHeight;
-      
-      const color = lvl.type === 'bid' ? 0x073247 : 0x2e0704;
-      const hoverColor = lvl.type === 'bid' ? 0x00aaff : 0xff0000;
-      
-      // 创建条形
-      const bar = new PIXI.Graphics();
-      bar.rect(x, y, barWidth * 0.8, barHeight);
-      bar.fill({ color });
-      
-      // 使条形可交互
-      bar.eventMode = 'static';
-      
-      // 存储条形相关数据
-      bar.lvlData = lvl;
-      
-      // 添加鼠标悬停事件
-      bar.on('pointerover', (event) => {
-        // 高亮显示条形
-        bar.clear();
-        bar.rect(x, y, barWidth * 0.8, barHeight);
-        bar.fill({ color: hoverColor });
-        
-        // 显示工具提示
-        window.tooltip.style.opacity = 1;
-        window.tooltip.innerHTML = `Price: ${lvl.y}<br/>${lvl.type}: ${fmtNum(lvl.value)}`;
-        window.tooltip.style.left = (event.clientX + 10) + 'px';
-        window.tooltip.style.top = (event.clientY - 10) + 'px';
-        window.tooltip.style.backgroundColor = lvl.type === 'ask' ? '#faeaea' : '#eafaea';
-        window.tooltip.style.borderColor = lvl.type === 'ask' ? 'red' : 'green';
-      });
-      
-      // 添加鼠标移出事件
-      bar.on('pointerout', () => {
-        // 恢复条形原始颜色
-        bar.clear();
-        bar.rect(x, y, barWidth * 0.8, barHeight);
-        bar.fill({ color });
-        
-        // 隐藏工具提示
-        window.tooltip.style.opacity = 0;
-      });
-      
-      // 添加鼠标移动事件，更新工具提示位置
-      bar.on('pointermove', (event) => {
-        window.tooltip.style.left = (event.clientX + 10) + 'px';
-        window.tooltip.style.top = (event.clientY + 10) + 'px';
-      });
-      
-      this.barChartBarsContainer.addChild(bar);
-    }
-    
-    // Draw axes
-    this.drawBarChartAxes(width, height, barWidth, max, sortedPrices);
-  }
-  
-  drawBarChartAxes(width, height, barWidth, maxValue, sortedPrices) {
-    // Create text style
-    const textStyle = new PIXI.TextStyle({
-      fontFamily: 'Arial',
-      fontSize: 10,
-      fill: '#ffffff',
-    });
-    
-    // Draw x-axis
-    const xAxis = new PIXI.Graphics();
-    xAxis.lineStyle(1, 0x666666);
-    xAxis.moveTo(0, height);
-    xAxis.lineTo(width, height);
-    this.barChartAxesContainer.addChild(xAxis);
-    
-    // Draw x-axis labels
-    const xLabelPeriod = Math.ceil(sortedPrices.length / 10);
-    for (let i = 0; i < sortedPrices.length; i += xLabelPeriod) {
-      const x = (i + 0.5) * barWidth;
-      const label = new PIXI.Text(sortedPrices[i], textStyle);
-      label.anchor.set(0.5, 0);
-      label.position.set(x, height + 5);
-      this.barChartAxesContainer.addChild(label);
-    }
-    
-    // Draw y-axis
-    const yAxis = new PIXI.Graphics();
-    yAxis.lineStyle(1, 0x666666);
-    yAxis.moveTo(width, 0);
-    yAxis.lineTo(width, height);
-    this.barChartAxesContainer.addChild(yAxis);
-    
-    // Draw y-axis labels
-    const yLabelCount = 5;
-    for (let i = 0; i <= yLabelCount; i++) {
-      const value = (i / yLabelCount) * maxValue;
-      const y = height - (i / yLabelCount) * height;
-      const label = new PIXI.Text(fmtNum(value), textStyle);
-      label.anchor.set(0, 0.5);
-      label.position.set(width + 5, y);
-      this.barChartAxesContainer.addChild(label);
-    }
+    // 使用 BarChart 组件渲染条形图
+    this.barChart.render(askLevels, bidLevels, sortedPrices);
   }
 
   //logarithmically scale delta dot size
@@ -1030,13 +831,14 @@ export default class Dashboard {
       clearInterval(this.intervals[i]);
     }
     
-    // Destroy PixiJS applications to free resources
+    // 销毁热图 PixiJS 应用
     if (this.heatmapApp) {
       this.heatmapApp.destroy(true, true);
     }
     
-    if (this.barChartApp) {
-      this.barChartApp.destroy(true, true);
+    // 销毁条形图组件
+    if (this.barChart) {
+      this.barChart.destroy();
     }
   }
 }
