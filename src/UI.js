@@ -1,119 +1,91 @@
+import DashboardManager from './DashboardManager.js';
+import BinanceDataFeed from '../lib/BinanceDataFeed.js';
+
 export default class UI {
-  constructor(dashboardManager) {
-    this.inputEl = document.querySelector('.ui');
-    this.inputs = this.parseInputs();
-    const areInputsValid = this.validateInputs(this.inputs);
-    if (!areInputsValid) {
-      console.error('Invalid inputs');
-    }
-
-    if (!dashboardManager || !dashboardManager.dashboards) {
-      console.error('Invalid dashboard manager reference');
-    }
-    this.dm = dashboardManager;
-    this.dashboard = document.querySelector('.dashboard');
-
-    if (!this.dashboard)
-      throw('Invalid HTML template');
-
-    this.setUpdateHandlers();
-    this.updateDashboard();
+  constructor() {
+    this.dashboardManager = new DashboardManager();
+    this.binanceDataFeed = new BinanceDataFeed(); // 创建一个实例用于获取 tickSize
+    this.setupEventListeners();
   }
 
-  updateInputs() {
-    console.log('updateInputs');
-    const inputs = this.parseInputs();
-    const areInputsValid = this.validateInputs(inputs);
-
-    if (areInputsValid) {
-      this.inputs = inputs;
-      this.updateDashboard();
-    }
-  }
-
-  updateDashboard() {
-    if (this.dashboardId !== undefined) {
-      this.dm.remove(this.dashboardId);
-    }
-
-    this.dashboardId = this.dm.create(
-      this.dashboard,
-      this.inputs.symbol,
-      this.inputs.updateInterval,
-      this.inputs.levels,
-      this.inputs.aggregation,
-      this.inputs.maxHeatmapSize,
-      this.inputs.colorScale,
-      this.inputs.theme
-    );
-  }
-
-  validateInputs(inputs) {
-    if (!inputs.symbol) {
-      alert('Invalid symbol');
-      return false;
-    }
-
-    if (!inputs.updateInterval
-      || typeof inputs.updateInterval !== 'number'
-      || inputs.updateInterval < 100) {
-      alert('Update interval is too low, use values > 50ms');
-      return false;
-    }
-
-    if (!inputs.levels
-      || typeof inputs.levels !== 'number'
-      || inputs.levels < 10
-      || inputs.levels > 100) {
-      alert('Showing less than 5 price levels makes the charts hard to read');
-      return false;
-    }
-
-    if (!inputs.aggregation
-      || typeof inputs.aggregation !== 'number'
-      || inputs.aggregation < 1
-      || inputs.aggregation > 10) {
-      alert('You cannot aggregate data over <1 price level');
-      return false;
-    }
-
-    if (['linear', 'log2'].indexOf(inputs.colorScale) === -1) {
-      alert('Invalid color scale input value');
-      return false;
-    }
-
-    if (['rb', 'bw'].indexOf(inputs.theme) === -1) {
-      alert('Invalid color theme input value');
-      return false;
-    }
-
-    return true;
-  }
-
-  setUpdateHandlers() {
-    const inputs = this.inputEl.querySelectorAll('select');
-    for (let l = inputs.length - 1; l >= 0; l--) {
-      inputs[l].addEventListener('change', () => this.updateInputs());
-    }
-  }
-
-  parseInputs() {
-    const symbol = this.inputEl.querySelector('.symbol select').value;
-    const updateInterval = parseInt(this.inputEl.querySelector('.update-interval select').value);
-    const maxHeatmapSize = parseInt(this.inputEl.querySelector('.heatmap-size select').value);
-    const levels = parseInt(this.inputEl.querySelector('.levels select').value);
-    const aggregation = parseInt(this.inputEl.querySelector('.aggregation select').value);
-    const colorScale = this.inputEl.querySelector('.scale select').value;
-    const theme = this.inputEl.querySelector('.theme select').value;
-
-    return {
-      symbol,
-      updateInterval,
-      maxHeatmapSize,
-      levels,
-      aggregation,
-      colorScale,
-      theme
+  setupEventListeners() {
+    // 获取 UI 元素
+    const uiBar = document.querySelector('.ui');
+    
+    // 获取所有输入控件
+    const updateIntervalSelect = uiBar.querySelector('.update-interval .input');
+    const heatmapSizeSelect = uiBar.querySelector('.heatmap-size .input');
+    const levelsSelect = uiBar.querySelector('.levels .input');
+    const aggregationSelect = uiBar.querySelector('.aggregation .input');
+    const scaleSelect = uiBar.querySelector('.scale .input');
+    const themeSelect = uiBar.querySelector('.theme .input');
+    
+    // 获取 feed 和 symbol 选择器
+    const feedSelect = document.getElementById('feed');
+    const binanceSymbolSelect = document.getElementById('binance-symbol');
+    const tseSymbolInput = document.getElementById('tse-symbol');
+    
+    // 创建仪表板的函数
+    const createDashboard = () => {
+      // 获取所有选项值
+      const feedType = feedSelect.value;
+      const symbol = feedType === 'binance' ? binanceSymbolSelect.value : tseSymbolInput.value;
+      const updateInterval = parseInt(updateIntervalSelect.value);
+      const maxSeriesLength = parseInt(heatmapSizeSelect.value);
+      const levels = parseInt(levelsSelect.value);
+      const aggregation = parseInt(aggregationSelect.value);
+      const scale = scaleSelect.value;
+      const theme = themeSelect.value;
+      
+      // 获取 tickSize
+      let tickSize = '0.01'; // 默认值
+      if (feedType === 'binance') {
+        // 使用 BinanceDataFeed 的 getSymbolTickSize 方法获取 tickSize
+        tickSize = this.binanceDataFeed.getSymbolTickSize(symbol);
+      }
+      
+      console.log(`Creating dashboard with symbol: ${symbol}, tickSize: ${tickSize}`);
+      
+      // 创建仪表板
+      this.dashboardManager.createDashboard(
+        feedType,
+        symbol,
+        tickSize,
+        updateInterval,
+        levels,
+        aggregation,
+        maxSeriesLength,
+        scale,
+        theme
+      );
     };
+    
+    // 为所有输入控件添加事件监听器
+    const inputControls = [
+      updateIntervalSelect, 
+      heatmapSizeSelect, 
+      levelsSelect, 
+      aggregationSelect, 
+      scaleSelect, 
+      themeSelect,
+      feedSelect,
+      binanceSymbolSelect,
+      tseSymbolInput
+    ];
+    
+    inputControls.forEach(control => {
+      if (control) {
+        control.addEventListener('change', () => {
+          // 清除现有仪表板
+          this.dashboardManager.clearDashboard();
+          
+          // 创建新仪表板
+          createDashboard();
+        });
+      }
+    });
+    
+    // 初始创建仪表板
+    createDashboard();
   }
 }

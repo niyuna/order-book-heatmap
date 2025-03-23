@@ -819,10 +819,10 @@ export default class Dashboard {
         continue;
 
       if (lvl.type === 'ask')
-        askLevels.push(lvl);
+          askLevels.push(lvl);
 
       if (lvl.type === 'bid')
-        bidLevels.push(lvl);
+          bidLevels.push(lvl);
     }
 
     // 对价格从低到高排序，用于 x 轴

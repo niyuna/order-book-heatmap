@@ -5,33 +5,80 @@
     <title>Order Flow Visualizer</title>
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="./lightgrid.min.css">
+    <style>
+      /* 添加一些样式来实现同一行显示 */
+      .input-row {
+        display: flex;
+        align-items: center;
+        gap: 20px; /* 控件之间的间距 */
+      }
+      
+      .input-group {
+        margin-bottom: 10px;
+      }
+      
+      /* 调整标签字体大小，使其与其他输入控件标签一致 */
+      .input-group label {
+        font-size: 14px; /* 调整为与其他标签相同的大小 */
+        font-weight: normal;
+      }
+      
+      /* 使 input-group 的样式与 input-wrapper 更一致 */
+      .input-group {
+        display: flex;
+        align-items: center;
+      }
+      
+      .input-group label {
+        margin-right: 8px;
+      }
+      
+      /* 增加仪表板底部的边距，确保条形图 X 轴完全可见 */
+      .dashboard {
+        margin-bottom: 30px; /* 增加底部边距 */
+      }
+      
+      /* 确保条形图容器有足够的高度 */
+      .bar-chart-wrapper {
+        min-height: 300px; /* 设置最小高度 */
+        padding-bottom: 40px; /* 为 X 轴标签留出空间 */
+      }
+      
+      /* 确保整个页面有足够的高度 */
+      body {
+        min-height: 100vh;
+        padding-bottom: 50px; /* 增加页面底部的内边距 */
+      }
+    </style>
   </head>
   <body>
     <div class="ui">
-      <div class="feed input-wrapper">
-        <div class="label">
-          feed
+      <!-- 创建一个包含 feed 和 symbol 的行 -->
+      <div class="input-row">
+        <div class="input-group">
+          <label for="feed">Feed:</label>
+          <select id="feed" onchange="updateSymbolInput()">
+            <option value="binance">Binance</option>
+            <option value="tse">TSE</option>
+          </select>
         </div>
 
-        <select class="input">
-          <option value="binance" selected="selected">binance</option>
-          <option value="TSE">TSE</option>
-        </select>
-      </div>
-
-      <div class="symbol input-wrapper">
-        <div class="label">
-          symbol
+        <div class="input-group" id="binance-symbol-container">
+          <label for="binance-symbol">Symbol:</label>
+          <select id="binance-symbol">
+            <option value="ETHUSDT">ETH/USDT</option>
+            <option value="ADAUSDT">ADA/USDT</option>
+            <option value="LTCUSDT" selected="selected">LTC/USDT</option>
+            <option value="XRPUSDT">XRP/USDT</option>
+            <option value="LINKUSDT">LINK/USDT</option>
+            <option value="BCHUSDT">BCH/USDT</option>
+          </select>
         </div>
 
-        <select class="input">
-          <option value="ETHUSDT">ETH/USDT</option>
-          <option value="ADAUSDT">ADA/USDT</option>
-          <option value="LTCUSDT" selected="selected">LTC/USDT</option>
-          <option value="XRPUSDT">XRP/USDT</option>
-          <option value="LINKUSDT">LINK/USDT</option>
-          <option value="BCHUSDT">BCH/USDT</option>
-        </select>
+        <div class="input-group" id="tse-symbol-container" style="display: none;">
+          <label for="tse-symbol">Symbol:</label>
+          <input type="text" id="tse-symbol" placeholder="Enter TSE symbol">
+        </div>
       </div>
 
       <div class="update-interval input-wrapper">
@@ -138,5 +185,22 @@
     </div>
 
     <script src="main.js"></script>
+    <script>
+    function updateSymbolInput() {
+      const feed = document.getElementById('feed').value;
+      const binanceContainer = document.getElementById('binance-symbol-container');
+      const tseContainer = document.getElementById('tse-symbol-container');
+      
+      if (feed === 'binance') {
+        binanceContainer.style.display = '';
+        tseContainer.style.display = 'none';
+      } else {
+        binanceContainer.style.display = 'none';
+        tseContainer.style.display = '';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', updateSymbolInput);
+    </script>
   </body>
 </html>

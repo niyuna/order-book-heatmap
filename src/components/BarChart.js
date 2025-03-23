@@ -79,7 +79,7 @@ export default class BarChart {
   
   // 渲染条形图
   render(askLevels, bidLevels, sortedPrices) {
-    const margin = this.options.margin;
+    const margin = { top: 20, right: 40, bottom: 40, left: 40 };
     const width = this.app.renderer.width - margin.left - margin.right;
     const height = this.app.renderer.height - margin.top - margin.bottom;
     
@@ -171,8 +171,8 @@ export default class BarChart {
     // 绘制 x 轴
     const xAxis = new PIXI.Graphics();
     xAxis.lineStyle(1, 0x666666);
-    xAxis.moveTo(0, height);
-    xAxis.lineTo(width, height);
+    xAxis.moveTo(this.options.margin.left, height + this.options.margin.top);
+    xAxis.lineTo(this.app.screen.width - this.options.margin.right, height + this.options.margin.top);
     this.axesContainer.addChild(xAxis);
     
     // 绘制 x 轴标签
