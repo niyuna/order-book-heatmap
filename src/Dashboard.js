@@ -900,7 +900,7 @@ export default class Dashboard {
   async loadHistoricalData(symbol, startTime, endTime, updateInterval) {
     try {
       // 检查数据源类型
-      if (!(this.book.feed instanceof TSEDataFeed)) {
+      if (!(this.feed instanceof TSEDataFeed)) {
         console.error('Historical data loading is only supported for TSE feed');
         return false;
       }
@@ -909,7 +909,7 @@ export default class Dashboard {
       this.showLoadingIndicator();
       
       // 获取历史数据
-      const historicalData = await this.book.feed.getHistoricalData(
+      const historicalData = await this.feed.getHistoricalData(
         symbol,
         startTime,
         endTime,
@@ -919,24 +919,68 @@ export default class Dashboard {
       // 清除现有数据
       this.clearData();
       
-      // 处理热图数据
-      for (const dataPoint of historicalData.heatmapData) {
-        this.updateDashboard(dataPoint.snapshot, dataPoint.timestamp);
-      }
+      // 重置 OrderBook
+      this.book.reset();
       
-      // 只处理最后一个时间间隔的交易数据
-      if (historicalData.tradesData.length > 0) {
-        // 获取最后一个热图数据点的时间戳
-        const lastTimestamp = historicalData.heatmapData.length > 0 
-          ? historicalData.heatmapData[historicalData.heatmapData.length - 1].timestamp 
-          : endTime - updateInterval;
+      // 处理历史数据
+      if (historicalData.heatmapData.length > 0) {
+        // 首先处理第一个快照，以便设置初始价格
+        const firstDataPoint = historicalData.heatmapData[0];
         
-        // 筛选最后一个时间间隔的交易数据
-        this.trades = historicalData.tradesData.filter(trade => 
-          trade.time >= lastTimestamp && trade.time < lastTimestamp + updateInterval
-        );
+        // 更新 OrderBook
+        this.book.updateOrderBook(firstDataPoint.snapshot);
         
-        console.log(`Loaded ${this.trades.length} trades from the last interval`);
+        // 获取 OrderBook 快照
+        const firstSnapshot = this.book.getSnapshot(this.levels + this.bufferLevels, this.aggregation);
+        
+        // 更新 originPrice 为第一个快照的价格中点
+        if (firstSnapshot && firstSnapshot.asks.length > 0 && firstSnapshot.bids.length > 0) {
+          
+          // 计算中点价格并使用 tick.round 方法进行四舍五入
+          const midPrice = this.tick.roundStep((firstSnapshot.ask + firstSnapshot.bid) / 2);
+          
+          // 重置 originPrice
+          this.originPrice = midPrice;
+          console.log(`Reset originPrice to ${midPrice} based on first historical snapshot`);
+          
+          // 重新计算价格位置映射
+          this.updatePricePositions();
+        }
+        
+        // 使用 OrderBook 处理后的数据更新仪表板
+        this.updateDashboard(firstSnapshot, firstDataPoint.timestamp);
+        
+        // 处理剩余的历史数据
+        for (let i = 1; i < historicalData.heatmapData.length; i++) {
+          const dataPoint = historicalData.heatmapData[i];
+          
+          // 更新 OrderBook
+          this.book.updateOrderBook(dataPoint.snapshot);
+          
+          // 获取 OrderBook 快照
+          const snapshot = this.book.getSnapshot(this.levels + this.bufferLevels, this.aggregation);
+          
+          // 使用 OrderBook 处理后的数据更新仪表板
+          this.updateDashboard(snapshot, dataPoint.timestamp);
+        }
+        
+        // 处理交易数据
+        if (historicalData.tradesData.length > 0) {
+          // 获取最后一个热图数据点的时间戳
+          const lastTimestamp = historicalData.heatmapData[historicalData.heatmapData.length - 1].timestamp;
+          
+          // 筛选最后一个时间间隔的交易数据
+          const lastIntervalTrades = historicalData.tradesData.filter(trade => 
+            trade.time >= lastTimestamp && trade.time < lastTimestamp + updateInterval
+          );
+          
+          // 更新交易数据
+          for (const trade of lastIntervalTrades) {
+            this.book.updateTrade(trade);
+          }
+          
+          console.log(`Loaded ${lastIntervalTrades.length} trades from the last interval`);
+        }
       }
       
       // 更新视图
