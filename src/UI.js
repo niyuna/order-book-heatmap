@@ -1,10 +1,12 @@
 import DashboardManager from './DashboardManager.js';
 import BinanceDataFeed from '../lib/BinanceDataFeed.js';
+import TSEDataFeed from '../lib/TSEDataFeed.js';
 
 export default class UI {
   constructor() {
     this.dashboardManager = new DashboardManager();
     this.binanceDataFeed = new BinanceDataFeed(); // 创建一个实例用于获取 tickSize
+    this.tseDataFeed = new TSEDataFeed(); // 创建一个实例用于获取 tickSize
     this.setupEventListeners();
   }
 
@@ -70,6 +72,9 @@ export default class UI {
       if (feedType === 'binance') {
         // 使用 BinanceDataFeed 的 getSymbolTickSize 方法获取 tickSize
         tickSize = this.binanceDataFeed.getSymbolTickSize(symbol);
+      } else if (feedType === 'tse') {
+        // 使用 TSEDataFeed 的 getSymbolTickSize 方法获取 tickSize
+        tickSize = this.tseDataFeed.getSymbolTickSize(symbol);
       }
       
       console.log(`Creating dashboard with symbol: ${symbol}, tickSize: ${tickSize}`);
