@@ -27,6 +27,9 @@ export default class UI {
     const binanceSymbolSelect = document.getElementById('binance-symbol');
     const tseSymbolInput = document.getElementById('tse-symbol');
     
+    // 获取 feed 选择器的父元素（用于添加 Apply 按钮）
+    const feedContainer = document.getElementById('feed-input-row');
+    
     // 获取历史数据控件
     const historicalDataWrapper = document.querySelector('.historical-data');
     const startTimeInput = document.getElementById('start-time');
@@ -97,16 +100,15 @@ export default class UI {
     const applyButton = document.createElement('button');
     applyButton.textContent = 'Apply Settings';
     applyButton.className = 'apply-button';
-    applyButton.style.marginTop = '10px';
-    applyButton.style.padding = '8px 16px';
-    applyButton.style.backgroundColor = '#4CAF50';
-    applyButton.style.color = 'white';
-    applyButton.style.border = 'none';
-    applyButton.style.borderRadius = '4px';
-    applyButton.style.cursor = 'pointer';
+    applyButton.style.marginLeft = '10px';
     
-    // 添加 Apply 按钮到 UI 栏
-    uiBar.appendChild(applyButton);
+    // 将 Apply 按钮添加到 feed 选择器的父元素中
+    if (feedContainer) {
+      feedContainer.appendChild(applyButton);
+    } else {
+      // 如果找不到 feed 容器，则添加到 UI 栏
+      uiBar.appendChild(applyButton);
+    }
     
     // 为 Apply 按钮添加点击事件
     applyButton.addEventListener('click', () => {

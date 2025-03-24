@@ -10,51 +10,130 @@
       .input-row {
         display: flex;
         align-items: center;
-        gap: 20px; /* 控件之间的间距 */
-      }
-      
-      .input-group {
+        gap: 15px; /* 控件之间的间距 */
         margin-bottom: 10px;
       }
       
-      /* 调整标签字体大小，使其与其他输入控件标签一致 */
-      .input-group label {
-        font-size: 14px; /* 调整为与其他标签相同的大小 */
+      /* 使 input-group 的样式与 input-wrapper 更一致 */
+      .input-group, .input-wrapper {
+        display: flex;
+        align-items: center;
+        margin-right: 15px;
+      }
+      
+      /* 调整标签样式 */
+      .input-group label, .label {
+        font-size: 14px;
+        color: #aaa;
+        margin-right: 8px;
         font-weight: normal;
       }
       
-      /* 使 input-group 的样式与 input-wrapper 更一致 */
-      .input-group {
-        display: flex;
-        align-items: center;
+      /* 统一所有按钮和输入控件的样式，参考 styles.css */
+      button, select, input {
+        background-color: #222;
+        color: #ddd;
+        border: 1px solid #444;
+        border-radius: 3px;
+        padding: 4px 8px;
+        font-size: 14px;
+        height: 28px;
+        box-sizing: border-box;
+        outline: none;
       }
       
-      .input-group label {
-        margin-right: 8px;
+      /* 输入控件焦点样式 */
+      button:focus, select:focus, input:focus {
+        border-color: #666;
+        box-shadow: 0 0 3px rgba(102, 175, 233, 0.6);
       }
       
-      /* 增加仪表板底部的边距，确保条形图 X 轴完全可见 */
-      .dashboard {
-        margin-bottom: 30px; /* 增加底部边距 */
+      /* 按钮悬停效果 */
+      button:hover {
+        background-color: #333;
+        border-color: #555;
+      }
+      
+      /* 禁用状态 */
+      button:disabled, select:disabled, input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      
+      /* Apply 按钮特殊样式 */
+      .apply-button {
+        background-color: #1e5928;
+        border-color: #1e5928;
+        color: #fff;
+      }
+      
+      .apply-button:hover {
+        background-color: #2a6e2d;
+        border-color: #2a6e2d;
+      }
+      
+      /* Load 按钮特殊样式 */
+      #load-historical-data {
+        background-color: #1e4b6d;
+        border-color: #1e4b6d;
+        color: #fff;
+      }
+      
+      #load-historical-data:hover {
+        background-color: #2a5d8f;
+        border-color: #2a5d8f;
       }
       
       /* 确保条形图容器有足够的高度 */
       .bar-chart-wrapper {
-        min-height: 300px; /* 设置最小高度 */
+        min-height: 300px;
         padding-bottom: 40px; /* 为 X 轴标签留出空间 */
       }
       
       /* 确保整个页面有足够的高度 */
       body {
         min-height: 100vh;
-        padding-bottom: 50px; /* 增加页面底部的内边距 */
+        padding-bottom: 50px;
+        background-color: #111;
+        color: #ddd;
+      }
+      
+      /* 工具提示样式 */
+      .tooltip {
+        position: absolute;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      
+      /* 历史数据控件容器 */
+      .historical-data {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #333;
+        border-radius: 4px;
+        background-color: #1a1a1a;
+      }
+      
+      /* 历史数据标题 */
+      .historical-data h3 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 16px;
+        color: #aaa;
       }
     </style>
   </head>
   <body>
     <div class="ui">
       <!-- 创建一个包含 feed 和 symbol 的行 -->
-      <div class="input-row">
+      <div class="input-row" id="feed-input-row">
         <div class="input-group">
           <label for="feed">Feed:</label>
           <select id="feed" onchange="updateSymbolInput()">
