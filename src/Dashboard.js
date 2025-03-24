@@ -265,7 +265,7 @@ export default class Dashboard {
     if (this.originPrice === null) {
       // 使用中间价格作为原点
       const midIndex = Math.floor(this.y.length / 2);
-      this.originPrice = this.tick.parse(this.y[midIndex]);
+      this.originPrice = this.tick.parseStep(this.y[midIndex]);
       
       // 使用 tick.js 提供的 stepSize 而不是自己计算
       this.priceStepSize = this.tick.stepSize;
@@ -391,7 +391,7 @@ export default class Dashboard {
     this.priceToYPosition.clear();
     
     for (const price of this.y) {
-      const priceDiff = this.tick.parse(price) - this.originPrice;
+      const priceDiff = this.tick.parseStep(price) - this.originPrice;
       const yPosition = -priceDiff / this.priceStepSize;  // 负号是因为价格越高，y坐标越小
       this.priceToYPosition.set(price, yPosition);
     }
@@ -928,7 +928,7 @@ export default class Dashboard {
     }
     
     // 创建新的空 mesh
-    this.createEmptyMesh();
+    // this.createEmptyMesh();
   }
 
   // 加载指示器方法
@@ -958,31 +958,25 @@ export default class Dashboard {
     }
   }
 
-  // 设置热图 mesh 和 shader
+  // 设置热图 mesh
   setupHeatmapMesh() {
     // 创建单元格数据数组
     this.cellsData = [];
     
-    // 初始化一个空的 MeshSimple
-    this.createEmptyMesh();
-  }
-
-  // 创建空的 MeshSimple
-  createEmptyMesh() {
-    // 创建一个简单的纹理
+    // 创建一个简单的白色纹理
     const whiteTexture = PIXI.Texture.WHITE;
     
-    // 如果已经有 mesh，先移除它
-    if (this.cellMesh) {
-      this.heatmapCellsContainer.removeChild(this.cellMesh);
-    }
-    
-    // 创建新的 MeshSimple
-    this.cellMesh = new PIXI.MeshSimple(whiteTexture);
+    // 创建 MeshSimple
+    this.cellMesh = new PIXI.MeshSimple({
+      texture: whiteTexture,
+      vertices: new Float32Array(),
+      uvs: new Float32Array(),
+      indices: new Uint16Array()
+    });
     
     // 添加 mesh 到热图容器
     this.heatmapCellsContainer.addChild(this.cellMesh);
-    console.log('Created new MeshSimple');
+    console.log('MeshSimple created and added to container');
   }
 
   // 更新热图单元格数据
@@ -1011,7 +1005,7 @@ export default class Dashboard {
       
       // 计算 y 坐标 - 使用价格差值
       // 首先，计算价格与原点价格的差值
-      const priceDiff = parseFloat(cell.y) - this.originPrice;
+      const priceDiff = this.tick.roundStep(cell.y) - this.originPrice;
       
       // 然后，将价格差值转换为位置
       // 注意：价格越高，y 坐标越小（屏幕坐标系中 y 轴向下）
@@ -1019,12 +1013,6 @@ export default class Dashboard {
       
       // 最后，计算世界坐标
       const worldY = (yPosition + this.levels) * this.cellSize.height;
-      
-      // 检查计算出的坐标是否有效
-      if (isNaN(worldY) || !isFinite(worldY)) {
-        console.warn('Invalid cell y coordinate:', cell.y, priceDiff, yPosition, worldY);
-        continue;
-      }
       
       // 计算单元格颜色
       const color = this.getCellColor(cell);
@@ -1072,7 +1060,7 @@ export default class Dashboard {
         x + width, y + height // 右下
       );
       
-      // 添加 UV 坐标
+      // 添加 UV 坐标 (MeshSimple 需要 UV 坐标)
       uvs.push(
         0, 0, // 左上
         1, 0, // 右上
@@ -1081,14 +1069,10 @@ export default class Dashboard {
       );
       
       // 添加颜色 (RGBA)
-      // 从十六进制颜色值中提取 RGB 分量
       const r = ((color >> 16) & 0xFF) / 255;
       const g = ((color >> 8) & 0xFF) / 255;
       const b = (color & 0xFF) / 255;
       const a = 1.0; // 完全不透明
-      
-      // 打印颜色值进行调试
-      // console.log(`Cell ${i} color: 0x${color.toString(16)}, R=${r}, G=${g}, B=${b}`);
       
       for (let j = 0; j < 4; j++) {
         colors.push(r, g, b, a);
@@ -1104,30 +1088,27 @@ export default class Dashboard {
     console.log('Vertices length:', vertices.length);
     console.log('Colors length:', colors.length);
     console.log('Indices length:', indices.length);
-      
-    // 创建新的 MeshSimple 替代旧的
-    const whiteTexture = PIXI.Texture.WHITE;
     
     // 如果已经有 mesh，先移除它
     if (this.cellMesh) {
       this.heatmapCellsContainer.removeChild(this.cellMesh);
     }
     
-    // 创建新的 MeshSimple，直接传入顶点、UV 和颜色数据
+    // 创建一个简单的白色纹理
+    const whiteTexture = PIXI.Texture.WHITE;
+    
+    // 创建新的 MeshSimple 实例
     this.cellMesh = new PIXI.MeshSimple({
-      // texture: whiteTexture,
+      texture: whiteTexture,
       vertices: new Float32Array(vertices),
       uvs: new Float32Array(uvs),
       indices: new Uint16Array(indices),
       colors: new Float32Array(colors)
     });
-
-    // 设置颜色
-    // this.cellMesh.tint = 0xFFFFFF; // 白色，让顶点颜色生效
-
-    // 添加到容器
+    
+    // 添加 mesh 到热图容器
     this.heatmapCellsContainer.addChild(this.cellMesh);
-    console.log('Created new MeshSimple with data');
+    console.log('New MeshSimple created and added to container');
   }
 
   // 获取单元格颜色 - 确保与 addCell 中的颜色计算逻辑一致
