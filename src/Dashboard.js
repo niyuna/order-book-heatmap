@@ -120,6 +120,8 @@ export default class Dashboard {
   }
 
   async setupPixiApplications() {
+    console.log('Setting up PixiJS applications');
+    
     // 只处理热图，条形图已经由 BarChart 组件处理
     const heatmapEl = this.el.querySelector('.heatmap');
     
@@ -192,6 +194,10 @@ export default class Dashboard {
 
     // 设置工具提示的初始位置
     this.updateTooltipPosition();
+
+    // 创建热图单元格的 mesh 和 shader
+    this.setupHeatmapMesh();
+    console.log('Heatmap mesh setup complete');
   }
   
   resizePixiApplications() {
@@ -288,8 +294,8 @@ export default class Dashboard {
       this.orderbook.push(bidData);
       
       // 添加新单元格
-      this.addCell(askData);
-      this.addCell(bidData);
+      // this.addCell(askData);
+      // this.addCell(bidData);
       
       // 更新最大深度
       if (snapshot.aggAskSizes[i] > this.maxDepth)
@@ -583,6 +589,9 @@ export default class Dashboard {
   renderHeatmap() {
     // 不再需要完全重绘，只需更新坐标轴
     this.renderHeatmapAxes();
+
+    // 更新单元格数据
+    this.updateHeatmapCellsData();
   }
   
   renderHeatmapAxes() {
@@ -908,6 +917,18 @@ export default class Dashboard {
     if (this.heatmapDeltasContainer) {
       this.heatmapDeltasContainer.removeChildren();
     }
+
+    // 清空单元格数据
+    this.cellsData = [];
+    
+    // 移除现有的 mesh
+    if (this.cellMesh) {
+      this.heatmapCellsContainer.removeChild(this.cellMesh);
+      this.cellMesh = null;
+    }
+    
+    // 创建新的空 mesh
+    this.createEmptyMesh();
   }
 
   // 加载指示器方法
@@ -935,5 +956,202 @@ export default class Dashboard {
     if (this.loadingIndicator) {
       this.loadingIndicator.style.display = 'none';
     }
+  }
+
+  // 设置热图 mesh 和 shader
+  setupHeatmapMesh() {
+    // 创建单元格数据数组
+    this.cellsData = [];
+    
+    // 初始化一个空的 MeshSimple
+    this.createEmptyMesh();
+  }
+
+  // 创建空的 MeshSimple
+  createEmptyMesh() {
+    // 创建一个简单的纹理
+    const whiteTexture = PIXI.Texture.WHITE;
+    
+    // 如果已经有 mesh，先移除它
+    if (this.cellMesh) {
+      this.heatmapCellsContainer.removeChild(this.cellMesh);
+    }
+    
+    // 创建新的 MeshSimple
+    this.cellMesh = new PIXI.MeshSimple(whiteTexture);
+    
+    // 添加 mesh 到热图容器
+    this.heatmapCellsContainer.addChild(this.cellMesh);
+    console.log('Created new MeshSimple');
+  }
+
+  // 更新热图单元格数据
+  updateHeatmapCellsData() {
+    // 清空单元格数据
+    this.cellsData = [];
+    
+    console.log('Updating heatmap cells data');
+    console.log('Orderbook length:', this.orderbook.length);
+    
+    // 遍历所有单元格数据
+    for (let i = 0; i < this.orderbook.length; i++) {
+      const cell = this.orderbook[i];
+      
+      // 获取单元格的 x 索引
+      const xIndex = this.x.indexOf(cell.x);
+      
+      // 如果 x 索引无效，则跳过
+      if (xIndex === -1) {
+        console.warn('Invalid cell x index:', cell.x);
+        continue;
+      }
+      
+      // 计算 x 坐标
+      const worldX = xIndex * this.cellSize.width;
+      
+      // 计算 y 坐标 - 使用价格差值
+      // 首先，计算价格与原点价格的差值
+      const priceDiff = parseFloat(cell.y) - this.originPrice;
+      
+      // 然后，将价格差值转换为位置
+      // 注意：价格越高，y 坐标越小（屏幕坐标系中 y 轴向下）
+      const yPosition = -priceDiff / this.priceStepSize;
+      
+      // 最后，计算世界坐标
+      const worldY = (yPosition + this.levels) * this.cellSize.height;
+      
+      // 检查计算出的坐标是否有效
+      if (isNaN(worldY) || !isFinite(worldY)) {
+        console.warn('Invalid cell y coordinate:', cell.y, priceDiff, yPosition, worldY);
+        continue;
+      }
+      
+      // 计算单元格颜色
+      const color = this.getCellColor(cell);
+      
+      // 添加单元格数据
+      this.cellsData.push({
+        x: worldX,
+        y: worldY,
+        width: this.cellSize.width,
+        height: this.cellSize.height,
+        color: color,
+        cell: cell
+      });
+    }
+    
+    console.log('Cell data length:', this.cellsData.length);
+    
+    // 更新几何体
+    this.updateCellGeometry();
+  }
+
+  // 更新单元格几何体
+  updateCellGeometry() {
+    console.log('Updating cell geometry');
+    
+    // 创建顶点、颜色和 UV 数组
+    const vertices = [];
+    const colors = [];
+    const uvs = [];
+    const indices = [];
+    
+    // 遍历所有单元格数据
+    for (let i = 0; i < this.cellsData.length; i++) {
+      const cellData = this.cellsData[i];
+      const { x, y, width, height, color } = cellData;
+      
+      // 计算顶点索引
+      const baseIndex = i * 4;
+      
+      // 添加顶点
+      vertices.push(
+        x, y,                 // 左上
+        x + width, y,         // 右上
+        x, y + height,        // 左下
+        x + width, y + height // 右下
+      );
+      
+      // 添加 UV 坐标
+      uvs.push(
+        0, 0, // 左上
+        1, 0, // 右上
+        0, 1, // 左下
+        1, 1  // 右下
+      );
+      
+      // 添加颜色 (RGBA)
+      // 从十六进制颜色值中提取 RGB 分量
+      const r = ((color >> 16) & 0xFF) / 255;
+      const g = ((color >> 8) & 0xFF) / 255;
+      const b = (color & 0xFF) / 255;
+      const a = 1.0; // 完全不透明
+      
+      // 打印颜色值进行调试
+      // console.log(`Cell ${i} color: 0x${color.toString(16)}, R=${r}, G=${g}, B=${b}`);
+      
+      for (let j = 0; j < 4; j++) {
+        colors.push(r, g, b, a);
+      }
+      
+      // 添加索引 (两个三角形组成一个矩形)
+      indices.push(
+        baseIndex, baseIndex + 1, baseIndex + 2,
+        baseIndex + 1, baseIndex + 3, baseIndex + 2
+      );
+    }
+    
+    console.log('Vertices length:', vertices.length);
+    console.log('Colors length:', colors.length);
+    console.log('Indices length:', indices.length);
+      
+    // 创建新的 MeshSimple 替代旧的
+    const whiteTexture = PIXI.Texture.WHITE;
+    
+    // 如果已经有 mesh，先移除它
+    if (this.cellMesh) {
+      this.heatmapCellsContainer.removeChild(this.cellMesh);
+    }
+    
+    // 创建新的 MeshSimple，直接传入顶点、UV 和颜色数据
+    this.cellMesh = new PIXI.MeshSimple({
+      // texture: whiteTexture,
+      vertices: new Float32Array(vertices),
+      uvs: new Float32Array(uvs),
+      indices: new Uint16Array(indices),
+      colors: new Float32Array(colors)
+    });
+
+    // 设置颜色
+    // this.cellMesh.tint = 0xFFFFFF; // 白色，让顶点颜色生效
+
+    // 添加到容器
+    this.heatmapCellsContainer.addChild(this.cellMesh);
+    console.log('Created new MeshSimple with data');
+  }
+
+  // 获取单元格颜色 - 确保与 addCell 中的颜色计算逻辑一致
+  getCellColor(cell) {
+    // 使用与原始 addCell 方法相同的颜色计算逻辑
+    let color;
+    
+    if (this.heatmap.theme === 'rb') {
+      // 红绿主题
+      if (cell.type === 'ask') {
+        // 卖单 - 红色
+        const intensity = Math.min(1, cell.value / this.maxDepth);
+        color = new PIXI.Color([intensity, 0, 0]).toNumber();
+      } else {
+        // 买单 - 绿色
+        const intensity = Math.min(1, cell.value / this.maxDepth);
+        color = new PIXI.Color([0, intensity, 0]).toNumber();
+      }
+    } else if (this.heatmap.theme === 'bw') {
+      // 黑白主题
+      const intensity = Math.min(1, cell.value / this.maxDepth);
+      color = new PIXI.Color([intensity, intensity, intensity]).toNumber();
+    }
+    
+    return color;
   }
 }
