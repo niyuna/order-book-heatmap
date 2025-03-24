@@ -93,30 +93,32 @@ export default class UI {
       );
     };
     
-    // 为所有输入控件添加事件监听器
-    const inputControls = [
-      updateIntervalSelect, 
-      heatmapSizeSelect, 
-      levelsSelect, 
-      aggregationSelect, 
-      scaleSelect, 
-      themeSelect,
-      feedSelect,
-      binanceSymbolSelect,
-      tseSymbolInput
-    ];
+    // 创建 Apply 按钮
+    const applyButton = document.createElement('button');
+    applyButton.textContent = 'Apply Settings';
+    applyButton.className = 'apply-button';
+    applyButton.style.marginTop = '10px';
+    applyButton.style.padding = '8px 16px';
+    applyButton.style.backgroundColor = '#4CAF50';
+    applyButton.style.color = 'white';
+    applyButton.style.border = 'none';
+    applyButton.style.borderRadius = '4px';
+    applyButton.style.cursor = 'pointer';
     
-    inputControls.forEach(control => {
-      if (control) {
-        control.addEventListener('change', () => {
-          // 清除现有仪表板
-          this.dashboardManager.clearDashboard();
-          
-          // 创建新仪表板
-          createDashboard();
-        });
-      }
+    // 添加 Apply 按钮到 UI 栏
+    uiBar.appendChild(applyButton);
+    
+    // 为 Apply 按钮添加点击事件
+    applyButton.addEventListener('click', () => {
+      // 清除现有仪表板
+      this.dashboardManager.clearDashboard();
+      
+      // 创建新仪表板
+      createDashboard();
     });
+    
+    // 移除输入控件上的 change 事件监听器
+    // 现在只有在点击 Apply 按钮时才会应用更改
     
     // 添加加载历史数据的事件监听器
     loadHistoricalButton.addEventListener('click', async () => {
