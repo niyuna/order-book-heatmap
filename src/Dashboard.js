@@ -958,25 +958,10 @@ export default class Dashboard {
     }
   }
 
-  // 设置热图 mesh
+  // 设置热图 mesh 和 shader
   setupHeatmapMesh() {
     // 创建单元格数据数组
     this.cellsData = [];
-    
-    // 创建一个简单的白色纹理
-    const whiteTexture = PIXI.Texture.WHITE;
-    
-    // 创建 MeshSimple
-    this.cellMesh = new PIXI.MeshSimple({
-      texture: whiteTexture,
-      vertices: new Float32Array(),
-      uvs: new Float32Array(),
-      indices: new Uint16Array()
-    });
-    
-    // 添加 mesh 到热图容器
-    this.heatmapCellsContainer.addChild(this.cellMesh);
-    console.log('MeshSimple created and added to container');
   }
 
   // 更新热图单元格数据
@@ -1038,77 +1023,108 @@ export default class Dashboard {
   updateCellGeometry() {
     console.log('Updating cell geometry');
     
-    // 创建顶点、颜色和 UV 数组
-    const vertices = [];
-    const colors = [];
-    const uvs = [];
-    const indices = [];
+    // 简单测试 - 只渲染一个矩形（两个三角形）
+    const vertices = [
+      // 0, 0,       // 顶点 0: 左上
+      100, 0,     // 顶点 1: 右上
+      0, 100,     // 顶点 2: 左下
+      100, 100    // 顶点 3: 右下
+    ];
     
-    // 遍历所有单元格数据
-    for (let i = 0; i < this.cellsData.length; i++) {
-      const cellData = this.cellsData[i];
-      const { x, y, width, height, color } = cellData;
-      
-      // 计算顶点索引
-      const baseIndex = i * 4;
-      
-      // 添加顶点
-      vertices.push(
-        x, y,                 // 左上
-        x + width, y,         // 右上
-        x, y + height,        // 左下
-        x + width, y + height // 右下
-      );
-      
-      // 添加 UV 坐标 (MeshSimple 需要 UV 坐标)
-      uvs.push(
-        0, 0, // 左上
-        1, 0, // 右上
-        0, 1, // 左下
-        1, 1  // 右下
-      );
-      
-      // 添加颜色 (RGBA)
-      const r = ((color >> 16) & 0xFF) / 255;
-      const g = ((color >> 8) & 0xFF) / 255;
-      const b = (color & 0xFF) / 255;
-      const a = 1.0; // 完全不透明
-      
-      for (let j = 0; j < 4; j++) {
-        colors.push(r, g, b, a);
-      }
-      
-      // 添加索引 (两个三角形组成一个矩形)
-      indices.push(
-        baseIndex, baseIndex + 1, baseIndex + 2,
-        baseIndex + 1, baseIndex + 3, baseIndex + 2
-      );
-    }
+    const colors = [
+      // 1, 0, 0, 1, // 顶点 0: 红色
+      0, 1, 0, 1, // 顶点 1: 绿色
+      0, 0, 1, 1, // 顶点 2: 蓝色
+      1, 1, 0, 1  // 顶点 3: 黄色
+    ];
     
-    console.log('Vertices length:', vertices.length);
-    console.log('Colors length:', colors.length);
-    console.log('Indices length:', indices.length);
+    // 使用顺时针顶点顺序定义三角形
+    const indices = [
+      // 2, 0, 1,    // 第一个三角形: 左上 -> 右上 -> 左下
+      2, 1, 3     // 第二个三角形: 右上 -> 右下 -> 左下
+    ];
     
-    // 如果已经有 mesh，先移除它
+    console.log('--- 测试矩形顶点 ---');
+    console.log('顶点 0 (左上):', vertices[0], vertices[1]);
+    console.log('顶点 1 (右上):', vertices[2], vertices[3]);
+    console.log('顶点 2 (左下):', vertices[4], vertices[5]);
+    console.log('顶点 3 (右下):', vertices[6], vertices[7]);
+    
+    console.log('--- 测试矩形索引 ---');
+    console.log('三角形 1:', indices[0], indices[1], indices[2]);
+    console.log('三角形 2:', indices[3], indices[4], indices[5]);
+    
+    // 更新几何体
     if (this.cellMesh) {
+      console.log('Removing old mesh');
       this.heatmapCellsContainer.removeChild(this.cellMesh);
     }
     
-    // 创建一个简单的白色纹理
-    const whiteTexture = PIXI.Texture.WHITE;
+    // 创建自定义着色器
+    const vertex = `
+      precision highp float;
+      
+      attribute vec2 aVertexPosition;
+      attribute vec4 aColor;
+      
+      uniform mat3 uProjectionMatrix;
+      uniform mat3 uWorldTransformMatrix;
+      uniform mat3 uTransformMatrix;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+        vec3 position = mvp * vec3(aVertexPosition, 1.0);
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+        vColor = aColor;
+      }
+    `;
     
-    // 创建新的 MeshSimple 实例
-    this.cellMesh = new PIXI.MeshSimple({
-      texture: whiteTexture,
-      vertices: new Float32Array(vertices),
-      uvs: new Float32Array(uvs),
-      indices: new Uint16Array(indices),
-      colors: new Float32Array(colors)
+    const fragment = `
+      precision highp float;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        gl_FragColor = vColor;
+      }
+    `;
+    
+    // 创建着色器
+    const shader = PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
+    
+    // 创建新的几何体
+    this.cellGeometry = new PIXI.Geometry({
+      attributes: {
+        aVertexPosition: vertices,
+        aColor: colors
+      },
+      indices: indices
     });
+    
+    // 创建新的 mesh
+    this.cellMesh = new PIXI.Mesh({
+      geometry: this.cellGeometry,
+      shader: shader
+    });
+    
+    // 禁用背面剔除
+    this.cellMesh.state = new PIXI.State();
+    this.cellMesh.state.culling = false;
     
     // 添加 mesh 到热图容器
     this.heatmapCellsContainer.addChild(this.cellMesh);
-    console.log('New MeshSimple created and added to container');
+    console.log('Added new mesh to container');
+    
+    // 打印一些调试信息
+    console.log('--- 渲染信息 ---');
+    console.log('Mesh position:', this.cellMesh.position);
+    console.log('Mesh scale:', this.cellMesh.scale);
+    
+    // 尝试设置 mesh 的位置和缩放
+    this.cellMesh.position.set(100, 100);  // 移动到可见区域
+    this.cellMesh.scale.set(1, 1);
   }
 
   // 获取单元格颜色 - 确保与 addCell 中的颜色计算逻辑一致
