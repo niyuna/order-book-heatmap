@@ -962,9 +962,145 @@ export default class Dashboard {
   setupHeatmapMesh() {
     // 创建单元格数据数组
     this.cellsData = [];
+    
+    // 创建自定义着色器
+    const vertex = `
+      precision highp float;
+      
+      attribute vec2 aVertexPosition;
+      attribute vec4 aColor;
+      
+      uniform mat3 uProjectionMatrix;
+      uniform mat3 uWorldTransformMatrix;
+      uniform mat3 uTransformMatrix;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+        vec3 position = mvp * vec3(aVertexPosition, 1.0);
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+        vColor = aColor;
+      }
+    `;
+    
+    const fragment = `
+      precision highp float;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        gl_FragColor = vColor;
+      }
+    `;
+    
+    // 创建着色器
+    this.cellShader = PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
+    
+    console.log('Shader created successfully');
   }
 
-  // 更新热图单元格数据
+  // 更新单元格几何体
+  updateCellGeometry() {
+    console.log('Updating cell geometry');
+    
+    if (this.cellsData.length === 0) {
+      console.log('No cell data to render');
+      return;
+    }
+    
+    // 创建顶点和颜色数组
+    const vertices = [];
+    const colors = [];
+    const indices = [];
+    
+    // 遍历所有单元格数据
+    for (let i = 0; i < this.cellsData.length; i++) {
+      const cellData = this.cellsData[i];
+      const { x, y, width, height, color } = cellData;
+      
+      // 计算顶点索引
+      const baseIndex = i * 4;
+      
+      // 添加顶点
+      vertices.push(
+        x, y,                 // 左上
+        x + width, y,         // 右上
+        x, y + height,        // 左下
+        x + width, y + height // 右下
+      );
+      
+      // 添加颜色 (RGBA)
+      const r = ((color >> 16) & 0xFF) / 255;
+      const g = ((color >> 8) & 0xFF) / 255;
+      const b = (color & 0xFF) / 255;
+      const a = 1.0; // 完全不透明
+      
+      for (let j = 0; j < 4; j++) {
+        colors.push(r, g, b, a);
+      }
+      
+      // 添加索引 (两个三角形组成一个矩形)
+      indices.push(
+        baseIndex, baseIndex + 1, baseIndex + 2,     // 第一个三角形
+        baseIndex + 1, baseIndex + 3, baseIndex + 2  // 第二个三角形
+      );
+    }
+    
+    console.log(`Generated geometry: ${vertices.length/2} vertices, ${indices.length/3} triangles`);
+    
+    // 更新几何体
+    if (this.cellMesh) {
+      this.heatmapCellsContainer.removeChild(this.cellMesh);
+      this.cellMesh.destroy(true);
+    }
+    
+    // 创建新的几何体
+    const newGeometry = new PIXI.Geometry({
+      attributes: {
+        aVertexPosition: new Float32Array(vertices),
+        aColor: new Float32Array(colors)
+      },
+      indexBuffer: new Uint16Array(indices)
+    });
+    
+    // 创建新的 mesh
+    this.cellMesh = new PIXI.Mesh({
+      geometry: newGeometry,
+      shader: this.cellShader
+    });
+    
+    // 添加 mesh 到热图容器
+    this.heatmapCellsContainer.addChild(this.cellMesh);
+    console.log('New mesh created and added to container');
+  }
+
+  // 获取单元格颜色
+  getCellColor(cell) {
+    if (cell.value <= 0) return 0x000000; // 黑色表示空单元格
+    
+    let factor;
+    if (this.heatmap.scale === 'log2') {
+      factor = Math.log(cell.value + 1) / Math.log2(this.maxDepth || 1);
+    } else {
+      factor = cell.value / (this.heatmap.linearScaleCutoff * (this.maxDepth || 1));
+    }
+    factor = Math.min(1, Math.max(0, factor)); // 限制在 0 到 1 之间
+    
+    // 设置颜色范围
+    let colorRange;
+    if (this.heatmap.theme === 'bw') {
+      colorRange = cell.type === 'bid' ? ["#222222", "#ffffff"] : ["#222222", "#ffffff"];
+    } else {
+      colorRange = cell.type === 'bid' ? ["#073247", "#00aaff"] : ["#2e0704", "#ff0000"];
+    }
+    
+    // 插值颜色
+    const hexColor = this.interpolateColor(colorRange[0], colorRange[1], factor);
+    return parseInt(hexColor.replace('#', '0x'));
+  }
+
+  // update heatmap cells data from order book, then trigger a render
   updateHeatmapCellsData() {
     // 清空单元格数据
     this.cellsData = [];
@@ -1017,139 +1153,5 @@ export default class Dashboard {
     
     // 更新几何体
     this.updateCellGeometry();
-  }
-
-  // 更新单元格几何体
-  updateCellGeometry() {
-    console.log('Updating cell geometry');
-    
-    // 简单测试 - 只渲染一个矩形（两个三角形）
-    const vertices = [
-      0, 0,       // 顶点 0: 左上
-      100, 0,     // 顶点 1: 右上
-      0, 100,     // 顶点 2: 左下
-      100, 100    // 顶点 3: 右下
-    ];
-    
-    const colors = [
-      1, 0, 0, 1, // 顶点 0: 红色
-      0, 1, 0, 1, // 顶点 1: 绿色
-      0, 0, 1, 1, // 顶点 2: 蓝色
-      1, 1, 0, 1  // 顶点 3: 黄色
-    ];
-    
-    // 使用顺时针顶点顺序定义三角形
-    const indices = [
-      2, 0, 1,    // 第一个三角形: 左上 -> 右上 -> 左下
-      2, 1, 3     // 第二个三角形: 右上 -> 右下 -> 左下
-    ];
-    
-    console.log('--- 测试矩形顶点 ---');
-    console.log('顶点 0 (左上):', vertices[0], vertices[1]);
-    console.log('顶点 1 (右上):', vertices[2], vertices[3]);
-    console.log('顶点 2 (左下):', vertices[4], vertices[5]);
-    console.log('顶点 3 (右下):', vertices[6], vertices[7]);
-    
-    console.log('--- 测试矩形索引 ---');
-    console.log('三角形 1:', indices[0], indices[1], indices[2]);
-    console.log('三角形 2:', indices[3], indices[4], indices[5]);
-    
-    // 更新几何体
-    if (this.cellMesh) {
-      console.log('Removing old mesh');
-      this.heatmapCellsContainer.removeChild(this.cellMesh);
-    }
-    
-    // 创建自定义着色器
-    const vertex = `
-      precision highp float;
-      
-      attribute vec2 aVertexPosition;
-      attribute vec4 aColor;
-      
-      uniform mat3 uProjectionMatrix;
-      uniform mat3 uWorldTransformMatrix;
-      uniform mat3 uTransformMatrix;
-      
-      varying vec4 vColor;
-      
-      void main() {
-        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
-        vec3 position = mvp * vec3(aVertexPosition, 1.0);
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-        vColor = aColor;
-      }
-    `;
-    
-    const fragment = `
-      precision highp float;
-      
-      varying vec4 vColor;
-      
-      void main() {
-        gl_FragColor = vColor;
-      }
-    `;
-    
-    // 创建着色器
-    const shader = PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
-    
-    // 创建新的几何体
-    this.cellGeometry = new PIXI.Geometry({
-      attributes: {
-        aVertexPosition: vertices,
-        aColor: colors
-      },
-      // indices: indices
-      indexBuffer: indices
-    });
-    
-    // 创建新的 mesh
-    this.cellMesh = new PIXI.Mesh({
-      geometry: this.cellGeometry,
-      shader: shader
-    });
-    
-    // 禁用背面剔除
-    // this.cellMesh.state = new PIXI.State();
-    // this.cellMesh.state.culling = false;
-    
-    // 添加 mesh 到热图容器
-    this.heatmapCellsContainer.addChild(this.cellMesh);
-    console.log('Added new mesh to container');
-    
-    // 打印一些调试信息
-    console.log('--- 渲染信息 ---');
-    console.log('Mesh position:', this.cellMesh.position);
-    console.log('Mesh scale:', this.cellMesh.scale);
-    
-    // 尝试设置 mesh 的位置和缩放
-    this.cellMesh.position.set(100, 100);  // 移动到可见区域
-    this.cellMesh.scale.set(1, 1);
-  }
-
-  // 获取单元格颜色 - 确保与 addCell 中的颜色计算逻辑一致
-  getCellColor(cell) {
-    // 使用与原始 addCell 方法相同的颜色计算逻辑
-    let color;
-    
-    if (this.heatmap.theme === 'rb') {
-      // 红绿主题
-      if (cell.type === 'ask') {
-        // 卖单 - 红色
-        const intensity = Math.min(1, cell.value / this.maxDepth);
-        color = new PIXI.Color([intensity, 0, 0]).toNumber();
-      } else {
-        // 买单 - 绿色
-        const intensity = Math.min(1, cell.value / this.maxDepth);
-        color = new PIXI.Color([0, intensity, 0]).toNumber();
-      }
-    } else if (this.heatmap.theme === 'bw') {
-      // 黑白主题
-      const intensity = Math.min(1, cell.value / this.maxDepth);
-      color = new PIXI.Color([intensity, intensity, intensity]).toNumber();
-    }
-    
-    return color;
   }
 }
