@@ -105,8 +105,49 @@ export default class Dashboard {
       document.body.appendChild(window.tooltip);
     }
 
-    // 启动常规更新
-    this.startRegularUpdates();
+    // 检查是否使用 TSEDataFeed
+    const isTSEFeed = feed && feed.constructor.name === 'TSEDataFeed';
+    
+    if (isTSEFeed) {
+      // 如果是 TSEDataFeed，先加载历史数据
+      console.log('TSEDataFeed detected, loading historical data before starting regular updates');
+      
+      // 计算过去 60 分钟的时间范围
+      const endTime = Date.now();
+      const startTime = endTime - (60 * 60 * 1000); // 60 分钟前
+      
+      // 检查市场状态
+      const marketStatus = feed.isMarketOpen();
+      
+      // 根据市场状态决定使用的时间范围
+      let historyStartTime, historyEndTime;
+      
+      if (!marketStatus.open) {
+        console.log('Market is closed. Using fallback timestamp for historical data.');
+        // 使用 fallback 时间戳，并向前推 60 分钟
+        historyEndTime = feed.fallbackTimestamp;
+        historyStartTime = historyEndTime - (60 * 60 * 1000);
+      } else {
+        // 市场开放，使用当前时间
+        historyStartTime = startTime;
+        historyEndTime = endTime;
+      }
+      
+      // 加载历史数据，完成后启动常规更新
+      this.loadHistoricalData(historyStartTime, historyEndTime, this.updateInterval, true)
+        .then(success => {
+          console.log('Historical data loading completed, success:', success);
+          // 注意：loadHistoricalData 已经在内部调用了 startRegularUpdates（如果 resumeUpdatesAfterLoad 为 true）
+        })
+        .catch(error => {
+          console.error('Error loading historical data:', error);
+          // 即使加载失败，也启动常规更新
+          this.startRegularUpdates();
+        });
+    } else {
+      // 不是 TSEDataFeed，直接启动常规更新
+      this.startRegularUpdates();
+    }
   }
 
   async setupPixiApplications() {
@@ -779,6 +820,7 @@ export default class Dashboard {
           // 重置 originPrice
           this.originPrice = midPrice;
           console.log(`Reset originPrice to ${midPrice} based on first historical snapshot`);
+          this.priceStepSize = this.tick.stepSize;
           
           // 重新计算价格位置映射
           this.updatePricePositions();
