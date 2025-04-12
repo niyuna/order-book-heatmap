@@ -240,14 +240,16 @@ export default class Dashboard {
     
     // 计算时间戳
     const ts = fmtTime(new Date(currentTimestamp), this.updateInterval);
+    // console.log('updating dashboard with timestamp:', ts);
 
     // 更新 x 轴（时间戳）
     if (this.x.length === 0 || this.x[this.x.length - 1] !== ts) {
-    this.x.push(ts);
+      this.x.push(ts);
       
       // 限制 x 轴数据点数量
       if (this.x.length > this.extendedMaxSeriesLength) {
         this.x.shift();
+        console.warn('x axis data points limit reached!');
       }
     }
     
@@ -382,8 +384,6 @@ export default class Dashboard {
     const top10PercentileIndex = Math.floor(sortedTrades.length - 1 - sortedTrades.length / 10);
     this.topTradeSize = sortedTrades[top10PercentileIndex] || 0;
     
-    // 自动滚动到最新数据
-    // this.scrollToLatestData();
   }
 
   // 更新价格到Y位置的映射
@@ -395,89 +395,6 @@ export default class Dashboard {
       const yPosition = -priceDiff / this.priceStepSize;  // 负号是因为价格越高，y坐标越小
       this.priceToYPosition.set(price, yPosition);
     }
-  }
-
-  // 修改 addCell 方法，使用价格差值计算Y位置
-  addCell(data) {
-    const xIndex = this.x.indexOf(data.x);
-    if (xIndex === -1) return;
-    
-    // 使用价格到Y位置的映射获取Y位置
-    const yPosition = this.priceToYPosition.get(data.y);
-    if (yPosition === undefined) return;
-    
-    const key = `${data.x}-${data.y}`;
-    let cell = this.cellMap.get(key);
-    
-    // 如果单元格不存在，创建一个新的
-    if (!cell) {
-      cell = new PIXI.Graphics();
-      this.heatmapCellsContainer.addChild(cell);
-      this.cellMap.set(key, cell);
-    }
-    
-    // 计算颜色
-    let color = 0x000000; // 黑色
-    
-    if (data.value > 0) {
-      let factor;
-      if (this.heatmap.scale === 'log2') {
-        factor = Math.log(data.value + 1) / Math.log2(this.maxDepth || 1);
-      } else {
-        factor = data.value / (this.heatmap.linearScaleCutoff * (this.maxDepth || 1));
-      }
-      factor = Math.min(1, Math.max(0, factor)); // 限制在 0 到 1 之间
-      
-      // 设置颜色范围
-      let colorRange;
-    if (this.heatmap.theme === 'bw') {
-        colorRange = data.type === 'bid' ? ["#222222", "#ffffff"] : ["#222222", "#ffffff"];
-      } else {
-        colorRange = data.type === 'bid' ? ["#073247", "#00aaff"] : ["#2e0704", "#ff0000"];
-      }
-      
-      // 插值颜色
-      const hexColor = this.interpolateColor(colorRange[0], colorRange[1], factor);
-      color = parseInt(hexColor.replace('#', '0x'));
-    }
-    
-    // 更新单元格
-    cell.clear();
-    cell.beginFill(color);
-    cell.drawRect(
-      xIndex * this.cellSize.width,
-      (yPosition + this.levels) * this.cellSize.height,  // 添加偏移量确保所有价格都在可见区域内
-      this.cellSize.width,
-      this.cellSize.height
-    );
-    cell.endFill();
-    
-    // 使单元格可交互
-    cell.eventMode = 'static';
-    
-    // 存储单元格相关数据
-    cell.cellData = data;
-    cell.cellX = xIndex * this.cellSize.width;
-    cell.cellY = (yPosition + this.levels) * this.cellSize.height;
-    
-    // 添加鼠标悬停事件
-    cell.on('pointerover', (event) => {
-      // 显示工具提示
-      window.tooltip.style.opacity = 1;
-      window.tooltip.innerHTML = `Price: ${data.y}<br/>${data.type}: ${fmtNum(data.value)}`;
-      
-      // 使用固定位置，不再跟随鼠标
-      // 不需要更新位置，因为已经在右上角固定了
-      
-      window.tooltip.style.backgroundColor = data.type === 'ask' ? '#faeaea' : '#eafaea';
-      window.tooltip.style.borderColor = data.type === 'ask' ? 'red' : 'green';
-    });
-    
-    // 添加鼠标移出事件
-    cell.on('pointerout', () => {
-      // 隐藏工具提示
-      window.tooltip.style.opacity = 0;
-    });
   }
   
   // 同样修改 addDelta 方法，使用价格差值计算Y位置
@@ -566,28 +483,8 @@ export default class Dashboard {
     });
   }
   
-  cleanupOldCells() {
-    // 移除不再需要的单元格
-    for (const [key, cell] of this.cellMap.entries()) {
-      const [timestamp, price] = key.split('-');
-      if (!this.x.includes(timestamp) || !this.y.includes(price)) {
-        this.heatmapCellsContainer.removeChild(cell);
-        this.cellMap.delete(key);
-      }
-    }
-    
-    // 移除不再需要的增量点
-    for (const [key, circle] of this.deltaMap.entries()) {
-      const [_, timestamp, price] = key.split('-');
-      if (!this.x.includes(timestamp) || !this.y.includes(price)) {
-        this.heatmapDeltasContainer.removeChild(circle);
-        this.deltaMap.delete(key);
-      }
-    }
-  }
-  
   renderHeatmap() {
-    // 不再需要完全重绘，只需更新坐标轴
+    // 渲染坐标轴
     this.renderHeatmapAxes();
 
     // 更新单元格数据
@@ -868,16 +765,16 @@ export default class Dashboard {
       }
       
       // 更新视图
-      this.renderHeatmap();
       this.renderTimeAndSales();
+      this.renderHeatmap();
       this.renderLimitOrdersBarChart();
-      
+
       // 隐藏加载指示器
       this.hideLoadingIndicator();
       
       // 添加一个提示，告诉用户如何恢复实时数据
       console.log('Historical data loaded. To resume real-time updates, please refresh the dashboard.');
-      
+      // console.log(this.orderbook);
       return true;
     } catch (error) {
       console.error('Error loading historical data:', error);
@@ -1000,9 +897,10 @@ export default class Dashboard {
     console.log('Shader created successfully');
   }
 
-  // 更新单元格几何体
+  // use cellsdata to render heatmap cells
   updateCellGeometry() {
     console.log('Updating cell geometry');
+    // console.log(this.cellsData);
     
     if (this.cellsData.length === 0) {
       console.log('No cell data to render');
@@ -1061,7 +959,8 @@ export default class Dashboard {
         aVertexPosition: new Float32Array(vertices),
         aColor: new Float32Array(colors)
       },
-      indexBuffer: new Uint16Array(indices)
+      // indexBuffer: new Uint16Array(indices)
+      indexBuffer: indices
     });
     
     // 创建新的 mesh
@@ -1153,5 +1052,6 @@ export default class Dashboard {
     
     // 更新几何体
     this.updateCellGeometry();
+    
   }
 }
