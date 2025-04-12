@@ -105,19 +105,8 @@ export default class Dashboard {
       document.body.appendChild(window.tooltip);
     }
 
-    // get recent market snapshot & rerender
-    let rerenderInterval = setInterval(() => {
-      const snapshot = this.book.getSnapshot(levels + this.bufferLevels, aggregation);
-
-      if (snapshot) {
-        this.updateDashboard(snapshot);
-        this.renderTimeAndSales();
-        this.renderHeatmap();
-        this.renderLimitOrdersBarChart();
-      }
-    }, updateInterval);
-    this.intervals.push(rerenderInterval);
-
+    // 启动常规更新
+    this.startRegularUpdates();
   }
 
   async setupPixiApplications() {
@@ -669,10 +658,37 @@ export default class Dashboard {
     return vertBandwidth * baseMultiplier;
   }
 
+  // 启动常规更新
+  startRegularUpdates() {
+    // 清除现有的更新间隔
+    this.clearDashboardIntervals();
+    
+    // 设置新的更新间隔
+    let rerenderInterval = setInterval(() => {
+      const snapshot = this.book.getSnapshot(this.levels + this.bufferLevels, this.aggregation);
+
+      if (snapshot) {
+        this.updateDashboard(snapshot);
+        this.renderTimeAndSales();
+        this.renderHeatmap();
+        this.renderLimitOrdersBarChart();
+      }
+    }, this.updateInterval);
+    
+    this.intervals.push(rerenderInterval);
+    console.log('Started regular dashboard updates');
+  }
+
+  /**
+   * 清除仪表板定时器
+   */
   clearDashboardIntervals() {
-    for (let i = 0, l = this.intervals.length; i < l; i++) {
-      clearInterval(this.intervals[i]);
+    // 清除所有定时器
+    for (const interval of this.intervals) {
+      clearInterval(interval);
     }
+    this.intervals = [];
+    console.log('Cleared all dashboard intervals');
   }
 
   // 修改 updateTooltipPosition 方法
@@ -711,9 +727,10 @@ export default class Dashboard {
    * @param {number} startTime - 开始时间戳
    * @param {number} endTime - 结束时间戳
    * @param {number} updateInterval - 更新间隔（毫秒）
+   * @param {boolean} resumeUpdatesAfterLoad - 加载完成后是否恢复更新
    * @returns {Promise<boolean>} - 加载完成的 Promise
    */
-  async loadHistoricalData(startTime, endTime, updateInterval = this.updateInterval) {
+  async loadHistoricalData(startTime, endTime, updateInterval = this.updateInterval, resumeUpdatesAfterLoad = false) {
     try {
       // 检查数据源类型
       if (!(this.feed instanceof TSEDataFeed)) {
@@ -807,17 +824,30 @@ export default class Dashboard {
       this.renderTimeAndSales();
       this.renderHeatmap();
       this.renderLimitOrdersBarChart();
-
+      
+      // 如果需要恢复更新，启动常规更新
+      if (resumeUpdatesAfterLoad) {
+        this.startRegularUpdates();
+      } else {
+        // 添加一个提示，告诉用户如何恢复实时数据
+        console.log('Historical data loaded. To resume real-time updates, call dashboard.startRegularUpdates()');
+      }
+      
       // 隐藏加载指示器
       this.hideLoadingIndicator();
       
-      // 添加一个提示，告诉用户如何恢复实时数据
-      console.log('Historical data loaded. To resume real-time updates, please refresh the dashboard.');
-      // console.log(this.orderbook);
       return true;
     } catch (error) {
       console.error('Error loading historical data:', error);
+      
+      // 如果需要恢复更新，启动常规更新
+      if (resumeUpdatesAfterLoad) {
+        this.startRegularUpdates();
+      }
+      
+      // 隐藏加载指示器
       this.hideLoadingIndicator();
+      
       return false;
     }
   }
@@ -1092,5 +1122,34 @@ export default class Dashboard {
     // 更新几何体
     this.updateCellGeometry();
     
+  }
+
+  /**
+   * 销毁仪表板
+   */
+  destroy() {
+    // 清除所有定时器
+    this.clearDashboardIntervals();
+    
+    // 销毁 OrderBook
+    if (this.book && this.book.subscription) {
+      this.book.subscription.unsubscribe();
+    }
+    
+    // 销毁 PixiJS 应用
+    if (this.heatmapApp) {
+      this.heatmapApp.destroy(true, { children: true, texture: true, baseTexture: true });
+    }
+    
+    if (this.barChartApp) {
+      this.barChartApp.destroy(true, { children: true, texture: true, baseTexture: true });
+    }
+    
+    // 清空 DOM 元素
+    if (this.el) {
+      this.el.innerHTML = '';
+    }
+    
+    console.log('Dashboard destroyed');
   }
 }
