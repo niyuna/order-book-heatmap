@@ -218,7 +218,7 @@ def get_historical_data(sc: str, start_time: str, end_time: str, update_interval
         
         # 查询指定时间范围内的数据
         cursor.execute(
-            "SELECT frameNum, timestamp, itaString FROM Ita WHERE sc = ? AND timestamp BETWEEN ? AND ? ORDER BY id ASC",
+            "SELECT frameNum, timestamp, itaString FROM Ita WHERE sc = ? AND timestamp >= ? AND timestamp < ? ORDER BY id ASC",
             (sc, start_time, end_time)
         )
         
