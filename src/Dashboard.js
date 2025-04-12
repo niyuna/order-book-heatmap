@@ -13,6 +13,7 @@ export default class Dashboard {
   constructor(el, feed, symbol, tickSize, updateInterval=250, levels=10, aggregation=1, maxSeriesLength=5, scale='linear', theme='rb') {
     // 存储数据源对象
     this.feed = feed;
+    this.symbol = symbol;  // 将 symbol 存储为实例变量
     
     // construct the orderbook, also it will init in 2s using remote snapshot
     this.book = new OrderBook(feed, symbol, tickSize);
@@ -705,7 +706,14 @@ export default class Dashboard {
     console.log('Tooltip position:', { left: window.tooltip.style.left, top: window.tooltip.style.top });
   }
 
-  async loadHistoricalData(symbol, startTime, endTime, updateInterval) {
+  /**
+   * 加载历史数据
+   * @param {number} startTime - 开始时间戳
+   * @param {number} endTime - 结束时间戳
+   * @param {number} updateInterval - 更新间隔（毫秒）
+   * @returns {Promise<boolean>} - 加载完成的 Promise
+   */
+  async loadHistoricalData(startTime, endTime, updateInterval = this.updateInterval) {
     try {
       // 检查数据源类型
       if (!(this.feed instanceof TSEDataFeed)) {
@@ -720,9 +728,9 @@ export default class Dashboard {
       this.clearDashboardIntervals();
       console.log('Stopped automatic updates for historical data view');
       
-      // 获取历史数据
+      // 获取历史数据 - 使用实例变量 this.symbol
       const historicalData = await this.feed.getHistoricalData(
-        symbol,
+        this.symbol,  // 使用存储的 symbol
         startTime,
         endTime,
         updateInterval

@@ -154,7 +154,6 @@ export default class UI {
         loadHistoricalButton.textContent = 'Loading...';
         
         const success = await this.dashboardManager.dashboard.loadHistoricalData(
-          symbol,
           startTime,
           endTime,
           updateInterval
