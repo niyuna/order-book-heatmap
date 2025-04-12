@@ -15,6 +15,11 @@ import json
 from datetime import datetime
 import sqlite3
 import time
+import os
+
+# 可配置的常量
+DB_PATH = os.environ.get('DB_PATH', 'F:\\kabu\\ita.db')
+FRAMES_OUTPUT_DIR = os.environ.get('FRAMES_OUTPUT_DIR', 'D:\\dev\\github\\brisk-hack\\brisk_in_day_frames')
 
 app = FastAPI()
 
@@ -84,7 +89,7 @@ class Ita(BaseModel):
 
 def get_db():
     if not hasattr(app.state, "db"):
-        app.state.db = sqlite3.connect('F:\\kabu\\ita.db', check_same_thread=False)
+        app.state.db = sqlite3.connect(DB_PATH, check_same_thread=False)
         app.state.db.row_factory = sqlite3.Row
     return app.state.db
 
@@ -113,14 +118,12 @@ def startup():
 
 @app.get("/latestFrame")
 def read_latest_frame():
-    # print(app.state.latest_frame)
     return shared_vars.get('latest_frame', {})
 
 
 @app.post("/latestFrame")
 def post_latest_frame(frame : Dict[int, Frame]):
     shared_vars['latest_frame'] = frame
-    # print(frame)
     return ['ok', len(frame)]
 
 
@@ -133,7 +136,9 @@ def post_in_day_frames(frames : Dict[str, List[Frame]]):
     formatted_date = current_date.strftime("%Y%m%d")
     new_frame_cnt = sum(len(f) for f in frames.values())
     if new_frame_cnt > 0:
-        file_name = f"D:\\dev\\github\\brisk-hack\\brisk_in_day_frames\\brisk_in_day_frames_{formatted_date}_{ts}.json"
+        # 确保输出目录存在
+        os.makedirs(FRAMES_OUTPUT_DIR, exist_ok=True)
+        file_name = f"{FRAMES_OUTPUT_DIR}/brisk_in_day_frames_{formatted_date}_{ts}.json"
         for i in range(3):
             try:
                 with open(file_name, "w") as f:
@@ -157,94 +162,13 @@ def post_in_day_ita_dict(ita_dict: Dict[str, Ita], db: sqlite3.Connection = Depe
         try:
             db.execute(
                 "INSERT INTO Ita (sc, frameNum, timestamp, itaString) VALUES (?, ?, ?, ?)",
-                (sc, ita.frame, ita.timestamp, ita.json(exclude_none=True))
+                (sc, ita.frame, ita.timestamp, ita.json(exclude_none=True, exclude_defaults=True, exclude_unset=True))
             )
             db.commit()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Insertion failed: {e}")
 
     return ['ok']
-
-# @app.get("/qrsIdMapping")
-# def read_qrs_id_mapping():
-#     return shared_vars.get('qrsIdMapping', {})
-
-
-# @app.post("/qrsIdMapping")
-# def post_qrs_id_mapping(qrsIdMapping : Dict[int, str]):
-#     shared_vars['qrsIdMapping'] = qrsIdMapping
-#     return ['ok', len(qrsIdMapping)]
-
-
-# def update_g_sheet(content):
-#     if not shared_vars.get('gclient'):
-#         shared_vars['gclient'] = authorize_google_sheets()
-    
-#     client = shared_vars['gclient']
-#     sheet = client.open_by_key("19ett5H6QgwHmmE2dnPo1nQ-liUQcu0aeF3ldlZ3gm2s").worksheet('stockInfos')
-#     # sheet.clear()  # 清空现有内容
-#     sheet.batch_clear(["A1:G5000"],  timeout=5)
-#     sheet.update(content, timeout=5)  # 写入标题和数据
-
-
-# @app.post("/stocksInfo")
-# def post_stocks_info(stocks : List[StockInfo]):
-#     shared_vars['stocksInfo'] = stocks
-#     content = convert_to_list(stocks)
-#     # update_g_sheet(content)
-    
-#     return ['ok', len(stocks)]
-
-
-# @app.get("/stocksInfo")
-# def get_stocks_info():
-#     return shared_vars.get('stocksInfo', {})
-
-
-# @app.get("/items/{item_id}")
-# def read_item(item_id: int, q: Union[str, None] = None):
-#     return {"item_id": item_id, "q": q}
-
-
-def convert_to_csv(objects):
-    output = StringIO()
-    writer = csv.writer(output)
-
-    # 获取对象的字段名（假设字段是动态的，可以从对象属性中提取）
-    if objects:
-        header = objects[0].__dict__.keys()
-        writer.writerow(header)  # 写入标题
-
-        # 写入每个对象的值
-        for obj in objects:
-            writer.writerow(obj.__dict__.values())
-
-    # 将指针重置到开头
-    output.seek(0)
-    return output
-
-
-def convert_to_list(objects):
-    content = []
-    if objects:
-        header = objects[0].__dict__.keys()
-        content.append(list(header))
-
-        for obj in objects:
-            content.append(list(obj.__dict__.values()))
-
-    return content
-
-
-# @app.get("/stocksInfo-csv")
-# def get_stocks_info_csv():
-#     csv_content = convert_to_csv(shared_vars.get('stocksInfo', []))
-#     response = StreamingResponse(
-#         csv_content,
-#         media_type="text/csv",
-#         headers={"Content-Disposition": "attachment; filename=items.csv"},
-#     )
-#     return response
 
 
 @app.post("/brisk-next-command")
