@@ -109,7 +109,7 @@ export default class Dashboard {
       const snapshot = this.book.getSnapshot(levels + this.bufferLevels, aggregation);
 
       if (snapshot) {
-        this.updateDashboard(snapshot, Date.now());
+        this.updateDashboard(snapshot);
         this.renderTimeAndSales();
         this.renderHeatmap();
         this.renderLimitOrdersBarChart();
@@ -235,13 +235,44 @@ export default class Dashboard {
 
   // restructure & derive secondary metrics from the OrderBook snapshot
   updateDashboard(snapshot, timestamp) {
-    // 如果没有提供时间戳，使用当前时间
-    const currentTimestamp = timestamp || Date.now();
+    // 检查是否使用 fallback 时间戳 - 通过检查订阅状态
+    const usingFallback = this.feed && 
+                          this.feed.constructor.name === 'TSEDataFeed' && 
+                          this.feed.subscriptions && 
+                          this.feed.subscriptions.some(sub => sub.usingFallback);
+    
+    // 确定要使用的时间戳
+    let currentTimestamp;
+    
+    if (timestamp) {
+      // 如果提供了明确的时间戳，优先使用它
+      currentTimestamp = timestamp;
+    } else if (usingFallback && this.feed.subscriptions) {
+      // 在 fallback 模式下，使用订阅中的 lastEndTime 作为时间戳
+      // 找到第一个使用 fallback 的订阅
+      const fallbackSub = this.feed.subscriptions.find(sub => sub.usingFallback);
+      if (fallbackSub && fallbackSub.lastEndTime) {
+        currentTimestamp = fallbackSub.lastEndTime;
+      } else {
+        // 如果没有 lastEndTime，使用 fallback 初始时间戳
+        currentTimestamp = this.feed.fallbackTimestamp;
+      }
+    } else {
+      // 正常模式下，使用当前时间
+      currentTimestamp = Date.now();
+    }
     
     // 计算时间戳
     const ts = fmtTime(new Date(currentTimestamp), this.updateInterval);
-    // console.log('updating dashboard with timestamp:', ts);
-
+    
+    // 如果使用 fallback 时间戳，添加标记
+    if (usingFallback && !this.fallbackLogged) {
+      console.log('Using fallback mode with simulated timestamps starting from:', 
+                  new Date(this.feed.fallbackTimestamp).toISOString());
+      // 只记录一次，避免日志过多
+      this.fallbackLogged = true;
+    }
+    
     // 更新 x 轴（时间戳）
     if (this.x.length === 0 || this.x[this.x.length - 1] !== ts) {
       this.x.push(ts);
