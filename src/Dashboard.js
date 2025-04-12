@@ -1025,14 +1025,14 @@ export default class Dashboard {
     
     // 简单测试 - 只渲染一个矩形（两个三角形）
     const vertices = [
-      // 0, 0,       // 顶点 0: 左上
+      0, 0,       // 顶点 0: 左上
       100, 0,     // 顶点 1: 右上
       0, 100,     // 顶点 2: 左下
       100, 100    // 顶点 3: 右下
     ];
     
     const colors = [
-      // 1, 0, 0, 1, // 顶点 0: 红色
+      1, 0, 0, 1, // 顶点 0: 红色
       0, 1, 0, 1, // 顶点 1: 绿色
       0, 0, 1, 1, // 顶点 2: 蓝色
       1, 1, 0, 1  // 顶点 3: 黄色
@@ -1040,7 +1040,7 @@ export default class Dashboard {
     
     // 使用顺时针顶点顺序定义三角形
     const indices = [
-      // 2, 0, 1,    // 第一个三角形: 左上 -> 右上 -> 左下
+      2, 0, 1,    // 第一个三角形: 左上 -> 右上 -> 左下
       2, 1, 3     // 第二个三角形: 右上 -> 右下 -> 左下
     ];
     
@@ -1100,7 +1100,8 @@ export default class Dashboard {
         aVertexPosition: vertices,
         aColor: colors
       },
-      indices: indices
+      // indices: indices
+      indexBuffer: indices
     });
     
     // 创建新的 mesh
@@ -1110,8 +1111,8 @@ export default class Dashboard {
     });
     
     // 禁用背面剔除
-    this.cellMesh.state = new PIXI.State();
-    this.cellMesh.state.culling = false;
+    // this.cellMesh.state = new PIXI.State();
+    // this.cellMesh.state.culling = false;
     
     // 添加 mesh 到热图容器
     this.heatmapCellsContainer.addChild(this.cellMesh);
