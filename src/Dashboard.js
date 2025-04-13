@@ -854,11 +854,11 @@ export default class Dashboard {
           );
           
           // 更新交易数据
-          for (const trade of lastIntervalTrades) {
+          for (const trade of historicalData.tradesData) {
             this.book.updateTrade(trade);
           }
           
-          console.log(`Loaded ${lastIntervalTrades.length} trades from the last interval`);
+          console.log(`Loaded ${historicalData.tradesData.length} trades from the last interval`);
         }
       }
       
