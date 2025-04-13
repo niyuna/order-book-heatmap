@@ -234,7 +234,7 @@ export default class Dashboard {
     console.log('Heatmap mesh setup complete');
 
     // 创建着色器
-    this.createDeltaShader();
+    // this.createDeltaShader();
     console.log('Shaders created successfully');
   }
   
@@ -396,6 +396,7 @@ export default class Dashboard {
     }
 
     // 更新市场买入/卖出数据...
+    // TODO: clean this up, the logic is in updateDeltasData() right now
     this.mktBuys.push({
       value: snapshot.stats.mktBuySize,
       count: snapshot.stats.mktBuyOrders,
@@ -564,7 +565,7 @@ export default class Dashboard {
     // 更新单元格数据
     this.updateHeatmapCellsData();
     
-    // 更新交易点数据
+    // update trade data agg, then render circles
     this.updateDeltasData();
   }
   
@@ -906,19 +907,20 @@ export default class Dashboard {
         // 处理交易数据
         if (historicalData.tradesData.length > 0) {
           // 获取最后一个热图数据点的时间戳
-          const lastTimestamp = historicalData.heatmapData[historicalData.heatmapData.length - 1].timestamp;
+          // const lastTimestamp = historicalData.heatmapData[historicalData.heatmapData.length - 1].timestamp;
           
           // 筛选最后一个时间间隔的交易数据
-          const lastIntervalTrades = historicalData.tradesData.filter(trade => 
-            trade.time >= lastTimestamp && trade.time < lastTimestamp + updateInterval
-          );
+          // const lastIntervalTrades = historicalData.tradesData.filter(trade => 
+          //   trade.time >= lastTimestamp && trade.time < lastTimestamp + updateInterval
+          // );
           
           // 更新交易数据
-          for (const trade of historicalData.tradesData) {
-            this.book.updateTrade(trade);
-          }
+          // for (const trade of historicalData.tradesData) {
+          //   this.book.updateTrade(trade);
+          // }
+          this.newTrades = historicalData.tradesData;
           
-          console.log(`Loaded ${historicalData.tradesData.length} trades from historical data`);
+          console.log(`Loaded ${this.newTrades.length} trades from historical data`);
         }
       }
       
@@ -1481,7 +1483,7 @@ export default class Dashboard {
     
     console.log('Updating deltas data using aggregated trades');
     
-    // 聚合交易数据
+    // aggregate trades by time bucket
     const aggregatedTrades = this.aggregateTradesByTimeBucket();
     
     // 找出最大交易量，用于缩放点大小
@@ -1490,7 +1492,7 @@ export default class Dashboard {
       maxVolume = Math.max(maxVolume, bucket.totalVolume);
     }
     
-    // 遍历所有聚合的交易桶
+    // build circles to render based on aggregated trades
     for (const [timestamp, bucket] of aggregatedTrades.entries()) {
       // 跳过没有交易的桶
       if (bucket.count === 0 || bucket.totalVolume === 0) {
@@ -1549,7 +1551,7 @@ export default class Dashboard {
     
     console.log('Aggregated deltas data length:', this.deltasData.length);
     
-    // 渲染交易点
+    // render with naive graphics
     this.renderDeltasWithGraphics();
   }
 
