@@ -148,6 +148,9 @@ export default class Dashboard {
       // 不是 TSEDataFeed，直接启动常规更新
       this.startRegularUpdates();
     }
+
+    // 初始化交易数据结构
+    this.initTradeDataStructures();
   }
 
   async setupPixiApplications() {
@@ -307,10 +310,10 @@ export default class Dashboard {
       // 只记录一次，避免日志过多
       this.fallbackLogged = true;
     }
-    
+
     // 更新 x 轴（时间戳）
     if (this.x.length === 0 || this.x[this.x.length - 1] !== ts) {
-      this.x.push(ts);
+    this.x.push(ts);
       
       // 限制 x 轴数据点数量
       if (this.x.length > this.extendedMaxSeriesLength) {
@@ -440,6 +443,11 @@ export default class Dashboard {
     }
 
     // 更新交易
+    if (snapshot.trades && snapshot.trades.length > 0) {
+      // 获取新交易
+      this.newTrades = snapshot.trades;    
+      console.log(`Processing ${this.newTrades.length} trades from snapshot`);
+    }
     this.trades = this.trades.concat(snapshot.trades);
     if (this.trades.length > this.extendedMaxSeriesLength)
       this.trades = this.trades.slice(this.trades.length - this.extendedMaxSeriesLength);
@@ -705,18 +713,18 @@ export default class Dashboard {
     // 检查是否使用旧接口
     if (typeof vertBandwidth === 'number' && typeof maxTradedSize === 'number') {
       // 旧接口逻辑
-      const maxMultiplier = 1;
-      let baseMultiplier = 0.25;
-      
+    const maxMultiplier = 1;
+    let baseMultiplier = 0.25;
+
       if (this.useLogScaleForDots) {
-        baseMultiplier += (Math.log2(size) / Math.log2(maxTradedSize)) * maxMultiplier;
-      } else {
-        baseMultiplier += (size / maxTradedSize) * maxMultiplier;
-      }
-      
-      return vertBandwidth * baseMultiplier;
+      baseMultiplier += (Math.log2(size) / Math.log2(maxTradedSize)) * maxMultiplier;
+    } else {
+      baseMultiplier += (size / maxTradedSize) * maxMultiplier;
     }
-    
+      
+    return vertBandwidth * baseMultiplier;
+  }
+
     // 新接口逻辑
     // 如果第二个参数是对象，则它是 options
     const opts = typeof vertBandwidth === 'object' ? vertBandwidth : (options || {});
@@ -1281,69 +1289,251 @@ export default class Dashboard {
   }
 
   /**
+   * 初始化交易数据结构
+   */
+  initTradeDataStructures() {
+    // 主交易列表
+    this.trades = [];
+    
+    // 新交易缓冲区 - 存储尚未聚合的交易
+    this.newTrades = [];
+    
+    // 聚合结果缓存 - 保存所有时间桶的聚合数据
+    this.aggregatedTradesCache = new Map();
+    
+    console.log('Trade data structures initialized');
+  }
+
+  /**
+   * 聚合交易数据到时间桶
+   * @returns {Map} 聚合后的交易数据
+   */
+  aggregateTradesByTimeBucket() {
+    console.log('Aggregating trades by time bucket');
+    
+    // 如果没有初始化聚合缓存，则初始化
+    if (!this.aggregatedTradesCache) {
+      this.aggregatedTradesCache = new Map();
+    }
+    
+    // 确保所有时间桶都存在
+    for (let i = 0; i < this.x.length; i++) {
+      const timeStr = this.x[i];
+      if (!this.aggregatedTradesCache.has(timeStr)) {
+        this.aggregatedTradesCache.set(timeStr, {
+          buyVolume: 0,      // 买入交易量
+          sellVolume: 0,     // 卖出交易量
+          totalVolume: 0,    // 总交易量
+          priceVolume: 0,    // 价格 * 交易量 (用于计算平均价格)
+          avgPrice: 0,       // 平均价格
+          netVolume: 0,      // 净交易量 (买入 - 卖出)
+          count: 0,          // 交易次数
+          timeStr: timeStr   // 时间字符串
+        });
+      }
+    }
+    
+    // 如果没有新交易，直接返回缓存
+    if (!this.newTrades || this.newTrades.length === 0) {
+      console.log('No new trades to aggregate');
+      return this.aggregatedTradesCache;
+    }
+    
+    console.log(`Processing ${this.newTrades.length} new trades`);
+    
+    // 处理新交易
+    for (let i = 0; i < this.newTrades.length; i++) {
+      const trade = this.newTrades[i];
+      
+      // 获取交易时间戳并格式化为与时间桶相同的格式
+      const tradeTimestamp = trade.timestamp || Date.now();
+      const tradeTimeStr = fmtTime(tradeTimestamp, this.updateInterval);
+      
+      // 直接查找匹配的时间桶
+      if (this.aggregatedTradesCache.has(tradeTimeStr)) {
+        // 找到匹配的时间桶
+        const bucket = this.aggregatedTradesCache.get(tradeTimeStr);
+        
+        // 获取交易量
+        const quantity = trade.quantity || trade.size || 0;
+        if (quantity <= 0) continue;
+        
+        // 获取价格
+        const price = trade.price || 0;
+        if (price <= 0) continue;
+        
+        // 根据交易方向更新买入/卖出量
+        if (trade.isBuyerMaker || !trade.isBuy) {
+          // 卖出交易 (红色)
+          bucket.sellVolume += quantity;
+        } else {
+          // 买入交易 (绿色)
+          bucket.buyVolume += quantity;
+        }
+        
+        // 更新总量和价格总和
+        bucket.totalVolume += quantity;
+        bucket.priceVolume += price * quantity;
+        bucket.count++;
+        
+        // 更新桶
+        this.aggregatedTradesCache.set(tradeTimeStr, bucket);
+      } else {
+        // 如果找不到精确匹配的时间桶，直接使用最近的时间桶
+        // 这种情况通常发生在时间轴边界或者时间格式不匹配时
+        
+        // 找到最近的时间桶
+        let closestBucket = null;
+        let minTimeDiff = Infinity;
+        
+        // 遍历所有时间桶，找到时间上最接近的
+        for (const bucketTimeStr of this.x) {
+          // 简单比较时间字符串的小时、分钟和秒部分
+          const timeDiff = this.compareTimeStrings(tradeTimeStr, bucketTimeStr);
+          
+          if (timeDiff < minTimeDiff) {
+            minTimeDiff = timeDiff;
+            closestBucket = bucketTimeStr;
+          }
+        }
+        
+        // 如果找不到合适的桶，跳过这笔交易
+        if (closestBucket === null) {
+          console.warn('Cannot find appropriate time bucket for trade:', tradeTimeStr);
+          continue;
+        }
+        
+        // 获取交易量
+        const quantity = trade.quantity || trade.size || 0;
+        if (quantity <= 0) continue;
+        
+        // 获取价格
+        const price = trade.price || 0;
+        if (price <= 0) continue;
+        
+        // 更新桶数据
+        const bucket = this.aggregatedTradesCache.get(closestBucket);
+        
+        // 根据交易方向更新买入/卖出量
+        if (trade.isBuyerMaker || !trade.isBuy) {
+          // 卖出交易 (红色)
+          bucket.sellVolume += quantity;
+        } else {
+          // 买入交易 (绿色)
+          bucket.buyVolume += quantity;
+        }
+        
+        // 更新总量和价格总和
+        bucket.totalVolume += quantity;
+        bucket.priceVolume += price * quantity;
+        bucket.count++;
+        
+        // 更新桶
+        this.aggregatedTradesCache.set(closestBucket, bucket);
+      }
+    }
+    
+    // 清空新交易缓冲区
+    this.newTrades = [];
+    
+    // 计算每个桶的平均价格和净交易量
+    for (const [timeStr, bucket] of this.aggregatedTradesCache.entries()) {
+      if (bucket.totalVolume > 0) {
+        bucket.avgPrice = bucket.priceVolume / bucket.totalVolume;
+        bucket.netVolume = bucket.buyVolume - bucket.sellVolume;
+      }
+    }
+    
+    console.log(`Aggregated trades into ${this.aggregatedTradesCache.size} time buckets`);
+    return this.aggregatedTradesCache;
+  }
+
+  /**
+   * 比较两个时间字符串的差异
+   * @param {string} timeStr1 - 第一个时间字符串 (HH:MM:SS.mmm)
+   * @param {string} timeStr2 - 第二个时间字符串 (HH:MM:SS.mmm)
+   * @returns {number} 时间差异（秒）
+   */
+  compareTimeStrings(timeStr1, timeStr2) {
+    // 解析第一个时间字符串
+    const [hours1, minutes1, secondsWithMs1] = timeStr1.split(':');
+    const [seconds1, _] = secondsWithMs1.split('.');
+    
+    // 解析第二个时间字符串
+    const [hours2, minutes2, secondsWithMs2] = timeStr2.split(':');
+    const [seconds2, __] = secondsWithMs2.split('.');
+    
+    // 转换为秒
+    const totalSeconds1 = parseInt(hours1) * 3600 + parseInt(minutes1) * 60 + parseInt(seconds1);
+    const totalSeconds2 = parseInt(hours2) * 3600 + parseInt(minutes2) * 60 + parseInt(seconds2);
+    
+    // 计算差异（绝对值）
+    return Math.abs(totalSeconds1 - totalSeconds2);
+  }
+
+  /**
    * 更新交易点数据
+   * 使用聚合后的交易数据
    */
   updateDeltasData() {
     // 清空交易点数据
     this.deltasData = [];
     
-    console.log('Updating deltas data');
-    console.log('Trade data structure example:', JSON.stringify(this.trades[0], null, 2));
-    console.log('Trades length:', this.trades.length);
+    console.log('Updating deltas data using aggregated trades');
     
-    // 遍历所有交易
-    for (let i = 0; i < this.trades.length; i++) {
-      const trade = this.trades[i];
-      
-      // 获取交易时间并规范化
-      const tradeTimestamp = trade.timestamp || Date.now();
-      const normalizedTime = fmtTime(tradeTimestamp, this.updateInterval);
-      
-      // 直接查找规范化时间在 x 轴上的索引
-      const xIndex = this.x.indexOf(normalizedTime);
-      
-      // 如果找不到匹配的索引，则跳过
-      if (xIndex === -1) {
-        console.warn('Normalized time not found in x-axis:', normalizedTime);
+    // 聚合交易数据
+    const aggregatedTrades = this.aggregateTradesByTimeBucket();
+    
+    // 找出最大交易量，用于缩放点大小
+    let maxVolume = 0;
+    for (const [_, bucket] of aggregatedTrades.entries()) {
+      maxVolume = Math.max(maxVolume, bucket.totalVolume);
+    }
+    
+    // 遍历所有聚合的交易桶
+    for (const [timestamp, bucket] of aggregatedTrades.entries()) {
+      // 跳过没有交易的桶
+      if (bucket.count === 0 || bucket.totalVolume === 0) {
         continue;
       }
       
-      // 计算 x 坐标，使用插值获取更精确的位置
-      let worldX;
+      // 找到时间戳对应的 x 轴索引
+      const xIndex = this.x.indexOf(timestamp);
       
-      // 如果有原始时间戳，使用它来计算更精确的位置
-      if (tradeTimestamp) {
-        // 获取当前格子的时间范围
-        const currentTime = this.x[xIndex];
-        const nextTime = (xIndex < this.x.length - 1) ? this.x[xIndex + 1] : currentTime + this.updateInterval;
-        
-        // 计算原始时间戳在格子内的相对位置（0-1之间）
-        const timeRange = nextTime - currentTime;
-        const relativePosition = timeRange > 0 ? 
-          Math.min(1, Math.max(0, (tradeTimestamp - currentTime) / timeRange)) : 0.5;
-        
-        // 计算精确的 x 坐标
-        const cellLeft = xIndex * this.cellSize.width;
-        worldX = cellLeft + relativePosition * this.cellSize.width;
-      } else {
-        // 如果没有原始时间戳，使用格子中心
-        worldX = xIndex * this.cellSize.width + this.cellSize.width / 2;
+      // 如果找不到匹配的索引，则跳过
+      if (xIndex === -1) {
+        console.warn('Time bucket not found in x-axis:', timestamp);
+        continue;
       }
       
-      // 计算 y 坐标 - 使用价格差值
-      const priceDiff = this.tick.roundStep(trade.price) - this.originPrice;
+      // 计算 x 坐标 (使用格子中心)
+      const worldX = xIndex * this.cellSize.width + this.cellSize.width / 2;
+      
+      // 计算 y 坐标 - 使用平均价格
+      const priceDiff = this.tick.roundStep(bucket.avgPrice) - this.originPrice;
       const yPosition = -priceDiff / this.priceStepSize;
       const worldY = (yPosition + this.levels) * this.cellSize.height + this.cellSize.height / 2;
       
-      // 计算交易点颜色和大小
-      const color = trade.isBuyerMaker ? 0xFF0000 : 0x00FF00; // 红色表示卖，绿色表示买
-      const quantity = trade.quantity || trade.size || 1; // 兼容不同的数量字段名
-
-      // 使用新的方法计算半径，传递选项对象作为第二个参数
-      const radius = this.getDeltaDotRadius(quantity, {
-        minRadius: 2,
-        maxRadius: 6,
-        scaleFactor: 0.5
+      // 确定交易点颜色 - 基于净交易量
+      // 如果净交易量为正 (买入 > 卖出)，则为绿色
+      // 如果净交易量为负 (卖出 > 买入)，则为红色
+      // 如果净交易量为零，则使用灰色
+      let color;
+      if (bucket.netVolume > 0) {
+        color = 0x00FF00; // 绿色 - 净买入
+      } else if (bucket.netVolume < 0) {
+        color = 0xFF0000; // 红色 - 净卖出
+      } else {
+        color = 0x888888; // 灰色 - 买卖平衡
+      }
+      
+      // 计算点大小 - 基于总交易量
+      const radius = this.getDeltaDotRadius(bucket.totalVolume, {
+        minRadius: 3,
+        maxRadius: 10,
+        scaleFactor: 0.6,
+        // 对于大量交易，使用对数缩放
+        logBase: maxVolume > 100 ? 10 : false
       });
       
       // 添加交易点数据
@@ -1352,164 +1542,109 @@ export default class Dashboard {
         y: worldY,
         radius: radius,
         color: color,
-        trade: trade,
-        normalizedTime: normalizedTime // 存储规范化后的时间，便于调试
+        bucket: bucket, // 存储桶数据，用于工具提示
+        timestamp: timestamp
       });
     }
     
-    console.log('Deltas data length:', this.deltasData.length);
+    console.log('Aggregated deltas data length:', this.deltasData.length);
     
-    // 更新几何体
-    // this.updateDeltaGeometry();
-
-    // // 在 updateDeltasData 方法末尾添加
-    // this.checkWebGLSupport();
-
-    // // 如果 Mesh 方法不工作，尝试使用 Graphics 对象
-    // if (this.deltasData.length > 0 && !this.deltaMesh) {
-    //   this.renderDeltasWithGraphics();
-    // }
+    // 渲染交易点
     this.renderDeltasWithGraphics();
-
-    // 在 updateDeltaGeometry 方法末尾添加
-    console.log('Viewport position:', this.heatmapViewport.position);
-    console.log('Viewport scale:', this.heatmapViewport.scale);
-    console.log('Viewport world width/height:', this.heatmapViewport.worldWidth, this.heatmapViewport.worldHeight);
   }
 
   /**
-   * 更新交易点几何体
+   * 使用 Graphics 对象渲染交易点
    */
-  updateDeltaGeometry() {
-    console.log('Updating delta geometry');
-    
-    if (this.deltasData.length === 0) {
-      console.log('No delta data to render');
-      return;
+  renderDeltasWithGraphics() {
+    // 清除现有的交易点
+    while (this.heatmapDeltasContainer.children.length > 0) {
+      const child = this.heatmapDeltasContainer.children[0];
+      this.heatmapDeltasContainer.removeChild(child);
+      child.destroy();
     }
     
-    // 创建顶点、颜色和半径数组
-    const vertices = [];
-    const colors = [];
-    const radii = [];
+    // 创建一个容器来存放所有交易点
+    const deltasContainer = new PIXI.Container();
+    this.heatmapDeltasContainer.addChild(deltasContainer);
     
     // 遍历所有交易点数据
     for (let i = 0; i < this.deltasData.length; i++) {
       const deltaData = this.deltasData[i];
-      const { x, y, radius, color } = deltaData;
+      const { x, y, radius, color, bucket } = deltaData;
       
-      // 添加顶点
-      vertices.push(x, y);
+      // 创建一个圆形
+      const circle = new PIXI.Graphics();
+      circle.beginFill(color);
+      circle.drawCircle(0, 0, radius);
+      circle.endFill();
       
-      // 添加颜色 (RGBA)
-      const r = ((color >> 16) & 0xFF) / 255;
-      const g = ((color >> 8) & 0xFF) / 255;
-      const b = (color & 0xFF) / 255;
-      const a = 1.0; // 完全不透明
+      // 设置位置
+      circle.position.set(x, y);
       
-      colors.push(r, g, b, a);
+      // 添加交互性
+      circle.eventMode = 'static';
+      circle.cursor = 'pointer';
       
-      // 添加半径
-      radii.push(radius);
-      
-      // // 添加调试图形，显示每个点的位置
-      // const debugCircle = new PIXI.Graphics();
-      // debugCircle.beginFill(color);
-      // debugCircle.drawCircle(x, y, 3); // 固定大小为3，便于识别
-      // debugCircle.endFill();
-      // this.heatmapDeltasContainer.addChild(debugCircle);
-      // console.log(`Added debug circle at (${x}, ${y}) with color ${color.toString(16)}`);
-    }
-    
-    console.log(`Generated delta geometry: ${vertices.length/2} points`);
-    
-    // 更新几何体
-    if (this.deltaMesh) {
-      this.heatmapDeltasContainer.removeChild(this.deltaMesh);
-      this.deltaMesh.destroy(true);
-    }
-    
-    // 创建新的几何体
-    const newGeometry = new PIXI.Geometry({
-      attributes: {
-        aVertexPosition: new Float32Array(vertices),
-        aColor: new Float32Array(colors),
-        aRadius: new Float32Array(radii)
+      // 添加工具提示数据
+      if (bucket) {
+        circle.tooltipData = {
+          time: bucket.timeStr,
+          avgPrice: this.tick.roundStep(bucket.avgPrice),
+          totalVolume: this.tick.roundStep(bucket.totalVolume),
+          buyVolume: this.tick.roundStep(bucket.buyVolume),
+          sellVolume: this.tick.roundStep(bucket.sellVolume),
+          netVolume: this.tick.roundStep(bucket.netVolume),
+          trades: bucket.count
+        };
+        
+        // 添加鼠标事件
+        circle.on('mouseover', this.showTradeTooltip.bind(this));
+        circle.on('mouseout', this.hideTooltip.bind(this));
       }
-    });
+      
+      // 添加到容器
+      deltasContainer.addChild(circle);
+    }
     
-    // 创建新的 mesh - 使用简化的着色器进行测试
-    this.deltaMesh = new PIXI.Mesh({
-      geometry: newGeometry,
-      shader: this.createSimplePointShader(), // 使用简化的着色器
-      drawMode: PIXI.DRAW_MODES.POINTS
-    });
-    
-    // 添加 mesh 到交易点容器
-    this.heatmapDeltasContainer.addChild(this.deltaMesh);
-    console.log('New delta mesh created and added to container');
+    console.log(`Rendered ${this.deltasData.length} aggregated trade points`);
   }
 
   /**
-   * 创建简化的点着色器用于测试
+   * 显示交易工具提示
+   * @param {Object} event - 鼠标事件
    */
-  createSimplePointShader() {
-    // 简化的顶点着色器
-    const vertex = `
-      precision highp float;
-      
-      attribute vec2 aVertexPosition;
-      attribute vec4 aColor;
-      attribute float aRadius;
-      
-      uniform mat3 uProjectionMatrix;
-      uniform mat3 uWorldTransformMatrix;
-      uniform mat3 uTransformMatrix;
-      
-      varying vec4 vColor;
-      
-      void main() {
-        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
-        vec3 position = mvp * vec3(aVertexPosition, 1.0);
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-        vColor = aColor;
-        gl_PointSize = 10.0; // 固定大小，便于调试
-      }
+  showTradeTooltip(event) {
+    const tooltipData = event.currentTarget.tooltipData;
+    const tooltip = window.tooltip;
+    
+    if (!tooltipData || !tooltip) return;
+    
+    // 设置工具提示内容
+    tooltip.innerHTML = `
+      <div><strong>Time:</strong> ${tooltipData.time}</div>
+      <div><strong>Avg Price:</strong> ${tooltipData.avgPrice}</div>
+      <div><strong>Total Volume:</strong> ${tooltipData.totalVolume}</div>
+      <div><strong>Buy Volume:</strong> ${tooltipData.buyVolume}</div>
+      <div><strong>Sell Volume:</strong> ${tooltipData.sellVolume}</div>
+      <div><strong>Net Volume:</strong> ${tooltipData.netVolume}</div>
+      <div><strong>Trades:</strong> ${tooltipData.trades}</div>
     `;
     
-    // 简化的片段着色器
-    const fragment = `
-      precision highp float;
-      
-      varying vec4 vColor;
-      
-      void main() {
-        gl_FragColor = vColor;
-      }
-    `;
+    // 设置工具提示位置
+    tooltip.style.left = (event.data.global.x + 10) + 'px';
+    tooltip.style.top = (event.data.global.y + 10) + 'px';
     
-    return PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
+    // 显示工具提示
+    tooltip.style.opacity = 1;
   }
 
   /**
-   * 检查 WebGL 支持和限制
+   * 隐藏工具提示
    */
-  checkWebGLSupport() {
-    const gl = this.heatmapApp.renderer.gl;
-    
-    console.log('WebGL Version:', gl.getParameter(gl.VERSION));
-    console.log('WebGL Vendor:', gl.getParameter(gl.VENDOR));
-    console.log('WebGL Renderer:', gl.getParameter(gl.RENDERER));
-    console.log('WebGL Shader Version:', gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
-    console.log('WebGL Max Vertex Attributes:', gl.getParameter(gl.MAX_VERTEX_ATTRIBS));
-    console.log('WebGL Max Texture Size:', gl.getParameter(gl.MAX_TEXTURE_SIZE));
-    console.log('WebGL Max Viewport Dimensions:', gl.getParameter(gl.MAX_VIEWPORT_DIMS));
-    console.log('WebGL Point Size Range:', gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE));
-    
-    // 检查是否支持点精灵
-    const pointSizeRange = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
-    if (pointSizeRange[1] < 10) {
-      console.warn('WebGL implementation may not support large point sizes!');
+  hideTooltip() {
+    if (window.tooltip) {
+      window.tooltip.style.opacity = 0;
     }
   }
 
@@ -1540,41 +1675,5 @@ export default class Dashboard {
     }
     
     console.log('Dashboard destroyed');
-  }
-
-  /**
-   * 使用 Graphics 对象渲染交易点
-   */
-  renderDeltasWithGraphics() {
-    // 清除现有的交易点
-    while (this.heatmapDeltasContainer.children.length > 0) {
-      const child = this.heatmapDeltasContainer.children[0];
-      this.heatmapDeltasContainer.removeChild(child);
-      child.destroy();
-    }
-    
-    // 创建一个容器来存放所有交易点
-    const deltasContainer = new PIXI.Container();
-    this.heatmapDeltasContainer.addChild(deltasContainer);
-    
-    // 遍历所有交易点数据
-    for (let i = 0; i < this.deltasData.length; i++) {
-      const deltaData = this.deltasData[i];
-      const { x, y, radius, color } = deltaData;
-      
-      // 创建一个圆形
-      const circle = new PIXI.Graphics();
-      circle.beginFill(color);
-      circle.drawCircle(0, 0, radius);
-      circle.endFill();
-      
-      // 设置位置
-      circle.position.set(x, y);
-      
-      // 添加到容器
-      deltasContainer.addChild(circle);
-    }
-    
-    console.log(`Rendered ${this.deltasData.length} deltas using Graphics objects`);
   }
 }
