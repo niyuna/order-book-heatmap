@@ -1288,6 +1288,7 @@ export default class Dashboard {
     this.deltasData = [];
     
     console.log('Updating deltas data');
+    console.log('Trade data structure example:', JSON.stringify(this.trades[0], null, 2));
     console.log('Trades length:', this.trades.length);
     
     // 遍历所有交易
@@ -1359,7 +1360,21 @@ export default class Dashboard {
     console.log('Deltas data length:', this.deltasData.length);
     
     // 更新几何体
-    this.updateDeltaGeometry();
+    // this.updateDeltaGeometry();
+
+    // // 在 updateDeltasData 方法末尾添加
+    // this.checkWebGLSupport();
+
+    // // 如果 Mesh 方法不工作，尝试使用 Graphics 对象
+    // if (this.deltasData.length > 0 && !this.deltaMesh) {
+    //   this.renderDeltasWithGraphics();
+    // }
+    this.renderDeltasWithGraphics();
+
+    // 在 updateDeltaGeometry 方法末尾添加
+    console.log('Viewport position:', this.heatmapViewport.position);
+    console.log('Viewport scale:', this.heatmapViewport.scale);
+    console.log('Viewport world width/height:', this.heatmapViewport.worldWidth, this.heatmapViewport.worldHeight);
   }
 
   /**
@@ -1396,6 +1411,14 @@ export default class Dashboard {
       
       // 添加半径
       radii.push(radius);
+      
+      // // 添加调试图形，显示每个点的位置
+      // const debugCircle = new PIXI.Graphics();
+      // debugCircle.beginFill(color);
+      // debugCircle.drawCircle(x, y, 3); // 固定大小为3，便于识别
+      // debugCircle.endFill();
+      // this.heatmapDeltasContainer.addChild(debugCircle);
+      // console.log(`Added debug circle at (${x}, ${y}) with color ${color.toString(16)}`);
     }
     
     console.log(`Generated delta geometry: ${vertices.length/2} points`);
@@ -1415,16 +1438,79 @@ export default class Dashboard {
       }
     });
     
-    // 创建新的 mesh
+    // 创建新的 mesh - 使用简化的着色器进行测试
     this.deltaMesh = new PIXI.Mesh({
       geometry: newGeometry,
-      shader: this.deltaShader
-      // drawMode: PIXI.DRAW_MODES.POINTS
+      shader: this.createSimplePointShader(), // 使用简化的着色器
+      drawMode: PIXI.DRAW_MODES.POINTS
     });
     
     // 添加 mesh 到交易点容器
     this.heatmapDeltasContainer.addChild(this.deltaMesh);
     console.log('New delta mesh created and added to container');
+  }
+
+  /**
+   * 创建简化的点着色器用于测试
+   */
+  createSimplePointShader() {
+    // 简化的顶点着色器
+    const vertex = `
+      precision highp float;
+      
+      attribute vec2 aVertexPosition;
+      attribute vec4 aColor;
+      attribute float aRadius;
+      
+      uniform mat3 uProjectionMatrix;
+      uniform mat3 uWorldTransformMatrix;
+      uniform mat3 uTransformMatrix;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+        vec3 position = mvp * vec3(aVertexPosition, 1.0);
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+        vColor = aColor;
+        gl_PointSize = 10.0; // 固定大小，便于调试
+      }
+    `;
+    
+    // 简化的片段着色器
+    const fragment = `
+      precision highp float;
+      
+      varying vec4 vColor;
+      
+      void main() {
+        gl_FragColor = vColor;
+      }
+    `;
+    
+    return PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
+  }
+
+  /**
+   * 检查 WebGL 支持和限制
+   */
+  checkWebGLSupport() {
+    const gl = this.heatmapApp.renderer.gl;
+    
+    console.log('WebGL Version:', gl.getParameter(gl.VERSION));
+    console.log('WebGL Vendor:', gl.getParameter(gl.VENDOR));
+    console.log('WebGL Renderer:', gl.getParameter(gl.RENDERER));
+    console.log('WebGL Shader Version:', gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+    console.log('WebGL Max Vertex Attributes:', gl.getParameter(gl.MAX_VERTEX_ATTRIBS));
+    console.log('WebGL Max Texture Size:', gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    console.log('WebGL Max Viewport Dimensions:', gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+    console.log('WebGL Point Size Range:', gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE));
+    
+    // 检查是否支持点精灵
+    const pointSizeRange = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
+    if (pointSizeRange[1] < 10) {
+      console.warn('WebGL implementation may not support large point sizes!');
+    }
   }
 
   /**
@@ -1454,5 +1540,41 @@ export default class Dashboard {
     }
     
     console.log('Dashboard destroyed');
+  }
+
+  /**
+   * 使用 Graphics 对象渲染交易点
+   */
+  renderDeltasWithGraphics() {
+    // 清除现有的交易点
+    while (this.heatmapDeltasContainer.children.length > 0) {
+      const child = this.heatmapDeltasContainer.children[0];
+      this.heatmapDeltasContainer.removeChild(child);
+      child.destroy();
+    }
+    
+    // 创建一个容器来存放所有交易点
+    const deltasContainer = new PIXI.Container();
+    this.heatmapDeltasContainer.addChild(deltasContainer);
+    
+    // 遍历所有交易点数据
+    for (let i = 0; i < this.deltasData.length; i++) {
+      const deltaData = this.deltasData[i];
+      const { x, y, radius, color } = deltaData;
+      
+      // 创建一个圆形
+      const circle = new PIXI.Graphics();
+      circle.beginFill(color);
+      circle.drawCircle(0, 0, radius);
+      circle.endFill();
+      
+      // 设置位置
+      circle.position.set(x, y);
+      
+      // 添加到容器
+      deltasContainer.addChild(circle);
+    }
+    
+    console.log(`Rendered ${this.deltasData.length} deltas using Graphics objects`);
   }
 }
