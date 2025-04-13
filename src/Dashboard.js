@@ -16,7 +16,7 @@ export default class Dashboard {
     this.symbol = symbol;  // 将 symbol 存储为实例变量
     
     // construct the orderbook, also it will init in 2s using remote snapshot
-    this.book = new OrderBook(feed, symbol, tickSize);
+    this.book = new OrderBook(feed, symbol, tickSize, updateInterval);
     this.tick = new Tick(tickSize, aggregation);
     this.el = el;
 
@@ -229,6 +229,10 @@ export default class Dashboard {
     // 创建热图单元格的 mesh 和 shader
     this.setupHeatmapMesh();
     console.log('Heatmap mesh setup complete');
+
+    // 创建着色器
+    this.createDeltaShader();
+    console.log('Shaders created successfully');
   }
   
   resizePixiApplications() {
@@ -427,7 +431,7 @@ export default class Dashboard {
     this.mktOrderDeltas.push(delta);
 
     // 添加新的增量点
-    this.addDelta(delta);
+    // this.addDelta(delta);
 
     if (this.mktBuys.length > this.extendedMaxSeriesLength) {
       this.mktBuys.shift();
@@ -551,6 +555,9 @@ export default class Dashboard {
 
     // 更新单元格数据
     this.updateHeatmapCellsData();
+    
+    // 更新交易点数据
+    this.updateDeltasData();
   }
   
   renderHeatmapAxes() {
@@ -858,7 +865,7 @@ export default class Dashboard {
             this.book.updateTrade(trade);
           }
           
-          console.log(`Loaded ${historicalData.tradesData.length} trades from the last interval`);
+          console.log(`Loaded ${historicalData.tradesData.length} trades from historical data`);
         }
       }
       
@@ -1164,6 +1171,209 @@ export default class Dashboard {
     // 更新几何体
     this.updateCellGeometry();
     
+  }
+
+  /**
+   * 创建 Delta 渲染所需的着色器
+   */
+  createDeltaShader() {
+    console.log('Creating delta shader');
+    
+    // 顶点着色器
+    const vertex = `
+      precision highp float;
+      
+      attribute vec2 aVertexPosition;
+      attribute vec4 aColor;
+      attribute float aRadius;
+      
+      uniform mat3 uProjectionMatrix;
+      uniform mat3 uWorldTransformMatrix;
+      uniform mat3 uTransformMatrix;
+      
+      varying vec4 vColor;
+      varying vec2 vPosition;
+      varying float vRadius;
+      
+      void main() {
+        mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+        vec3 position = mvp * vec3(aVertexPosition, 1.0);
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+        vColor = aColor;
+        vPosition = aVertexPosition;
+        vRadius = aRadius;
+        gl_PointSize = aRadius * 2.0;
+      }
+    `;
+    
+    // 片段着色器
+    const fragment = `
+      precision highp float;
+      
+      varying vec4 vColor;
+      varying vec2 vPosition;
+      varying float vRadius;
+      
+      void main() {
+        // 计算当前片段到中心的距离
+        vec2 center = gl_PointCoord - vec2(0.5);
+        float dist = length(center);
+        
+        // 如果距离大于0.5，则丢弃片段（创建圆形）
+        if (dist > 0.5) {
+          discard;
+        }
+        
+        // 应用颜色
+        gl_FragColor = vColor;
+      }
+    `;
+    
+    // 创建着色器
+    this.deltaShader = PIXI.Shader.from({gl: {vertex, fragment}, resources: {}});
+    
+    console.log('Delta shader created successfully');
+  }
+
+  /**
+   * 更新交易点数据
+   */
+  updateDeltasData() {
+    // 清空交易点数据
+    this.deltasData = [];
+    
+    console.log('Updating deltas data');
+    console.log('Trades length:', this.trades.length);
+    
+    // 遍历所有交易
+    for (let i = 0; i < this.trades.length; i++) {
+      const trade = this.trades[i];
+      
+      // 获取交易时间并规范化
+      const tradeTimestamp = trade.timestamp || Date.now();
+      const normalizedTime = fmtTime(tradeTimestamp, this.updateInterval);
+      
+      // 直接查找规范化时间在 x 轴上的索引
+      const xIndex = this.x.indexOf(normalizedTime);
+      
+      // 如果找不到匹配的索引，则跳过
+      if (xIndex === -1) {
+        console.warn('Normalized time not found in x-axis:', normalizedTime);
+        continue;
+      }
+      
+      // 计算 x 坐标，使用插值获取更精确的位置
+      let worldX;
+      
+      // 如果有原始时间戳，使用它来计算更精确的位置
+      if (tradeTimestamp) {
+        // 获取当前格子的时间范围
+        const currentTime = this.x[xIndex];
+        const nextTime = (xIndex < this.x.length - 1) ? this.x[xIndex + 1] : currentTime + this.updateInterval;
+        
+        // 计算原始时间戳在格子内的相对位置（0-1之间）
+        const timeRange = nextTime - currentTime;
+        const relativePosition = timeRange > 0 ? 
+          Math.min(1, Math.max(0, (tradeTimestamp - currentTime) / timeRange)) : 0.5;
+        
+        // 计算精确的 x 坐标
+        const cellLeft = xIndex * this.cellSize.width;
+        worldX = cellLeft + relativePosition * this.cellSize.width;
+      } else {
+        // 如果没有原始时间戳，使用格子中心
+        worldX = xIndex * this.cellSize.width + this.cellSize.width / 2;
+      }
+      
+      // 计算 y 坐标 - 使用价格差值
+      const priceDiff = this.tick.roundStep(trade.price) - this.originPrice;
+      const yPosition = -priceDiff / this.priceStepSize;
+      const worldY = (yPosition + this.levels) * this.cellSize.height + this.cellSize.height / 2;
+      
+      // 计算交易点颜色和大小
+      const color = trade.isBuyerMaker ? 0xFF0000 : 0x00FF00; // 红色表示卖，绿色表示买
+      const quantity = trade.quantity || trade.size || 1; // 兼容不同的数量字段名
+      const radius = Math.min(5, Math.max(2, Math.sqrt(quantity) * 0.5)); // 根据数量调整大小
+      
+      // 添加交易点数据
+      this.deltasData.push({
+        x: worldX,
+        y: worldY,
+        radius: radius,
+        color: color,
+        trade: trade,
+        normalizedTime: normalizedTime // 存储规范化后的时间，便于调试
+      });
+    }
+    
+    console.log('Deltas data length:', this.deltasData.length);
+    
+    // 更新几何体
+    this.updateDeltaGeometry();
+  }
+
+  /**
+   * 更新交易点几何体
+   */
+  updateDeltaGeometry() {
+    console.log('Updating delta geometry');
+    
+    if (this.deltasData.length === 0) {
+      console.log('No delta data to render');
+      return;
+    }
+    
+    // 创建顶点、颜色和半径数组
+    const vertices = [];
+    const colors = [];
+    const radii = [];
+    
+    // 遍历所有交易点数据
+    for (let i = 0; i < this.deltasData.length; i++) {
+      const deltaData = this.deltasData[i];
+      const { x, y, radius, color } = deltaData;
+      
+      // 添加顶点
+      vertices.push(x, y);
+      
+      // 添加颜色 (RGBA)
+      const r = ((color >> 16) & 0xFF) / 255;
+      const g = ((color >> 8) & 0xFF) / 255;
+      const b = (color & 0xFF) / 255;
+      const a = 1.0; // 完全不透明
+      
+      colors.push(r, g, b, a);
+      
+      // 添加半径
+      radii.push(radius);
+    }
+    
+    console.log(`Generated delta geometry: ${vertices.length/2} points`);
+    
+    // 更新几何体
+    if (this.deltaMesh) {
+      this.heatmapDeltasContainer.removeChild(this.deltaMesh);
+      this.deltaMesh.destroy(true);
+    }
+    
+    // 创建新的几何体
+    const newGeometry = new PIXI.Geometry({
+      attributes: {
+        aVertexPosition: new Float32Array(vertices),
+        aColor: new Float32Array(colors),
+        aRadius: new Float32Array(radii)
+      }
+    });
+    
+    // 创建新的 mesh
+    this.deltaMesh = new PIXI.Mesh({
+      geometry: newGeometry,
+      shader: this.deltaShader,
+      drawMode: PIXI.DRAW_MODES.POINTS
+    });
+    
+    // 添加 mesh 到交易点容器
+    this.heatmapDeltasContainer.addChild(this.deltaMesh);
+    console.log('New delta mesh created and added to container');
   }
 
   /**
