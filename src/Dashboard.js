@@ -1365,7 +1365,7 @@ export default class Dashboard {
         if (price <= 0) continue;
         
         // 根据交易方向更新买入/卖出量
-        if (trade.isBuyerMaker || !trade.isBuy) {
+        if (trade.isBuyerMaker) {
           // 卖出交易 (红色)
           bucket.sellVolume += quantity;
         } else {
@@ -1417,7 +1417,7 @@ export default class Dashboard {
         const bucket = this.aggregatedTradesCache.get(closestBucket);
         
         // 根据交易方向更新买入/卖出量
-        if (trade.isBuyerMaker || !trade.isBuy) {
+        if (trade.isBuyerMaker) {
           // 卖出交易 (红色)
           bucket.sellVolume += quantity;
         } else {
