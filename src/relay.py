@@ -194,20 +194,6 @@ async def get_brisk_next_command(cmd: str, args: str):
     await manager.broadcast(f"{cmd} {args}")
     return ['ok', cmd]
 
-
-# @app.websocket("/ws")
-# async def websocket_endpoint(websocket: WebSocket):
-#     await websocket.accept()
-#     shared_vars['active_ws_connection'].append(websocket)
-#     try:
-#         while True:
-#             data = await websocket.receive_text()
-#             print(data)
-#     except WebSocketDisconnect:
-#         print("Client disconnected")
-#         shared_vars['active_ws_connection'].remove(websocket)
-
-
 # 使用线程安全的 OrderedDict 作为缓存
 class ThreadSafeCache:
     def __init__(self, max_size=100):
@@ -794,3 +780,184 @@ async def delete_stored_data(req_id: str):
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
+    """
+    通过 WebSocket 获取实时交易数据
+    
+    参数:
+    - sc: 股票代码
+    - start_time: 开始时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    - end_time: 结束时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    
+    返回:
+    - 包含交易数据的列表，如果无法获取则返回空列表
+    """
+    try:
+        # 检查是否有活跃的 WebSocket 连接
+        if not manager.active_connections:
+            print("No active WebSocket connections available")
+            return []
+        
+        # 生成唯一的请求 ID
+        req_id = f"trades_{sc}_{int(time.time() * 1000)}"
+        
+        print(f"Broadcasting command to get trades for {sc} with req_id: {req_id}")
+        
+        # 广播命令给所有 WebSocket 连接
+        # await manager.broadcast(command)
+        await manager.broadcast(f"TICKS {sc}:{req_id}")
+        
+        # 等待一段时间，让客户端有时间响应
+        await asyncio.sleep(0.5)  # 100ms
+
+        # 转换时间为 datetime 对象，用于过滤
+        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+
+        # 确保正确应用时区
+        jst = pytz.timezone('Asia/Tokyo')
+        start_dt_jst = start_dt.astimezone(jst)
+        end_dt_jst = end_dt.astimezone(jst)
+        
+        # 检查共享存储中是否有对应的结果
+        trades_data = shared_data_store.get_data(req_id)
+        
+        if not trades_data:
+            print(f"No trade data received for {sc} via WebSocket")
+            return []
+        
+        print(f"Received {len(trades_data) if isinstance(trades_data, list) else 'unknown'} trades for {sc} via WebSocket")
+        
+        # 处理接收到的交易数据
+        trades = []
+        
+        # 确保 trades_data 是列表
+        if not isinstance(trades_data, list):
+            if isinstance(trades_data, dict) and "trades" in trades_data:
+                trades_data = trades_data["trades"]
+            else:
+                print(f"Unexpected trades_data format: {type(trades_data)}")
+                return []
+        
+        
+        
+        # 转换为毫秒时间戳
+        start_ts = int(start_dt.timestamp() * 1000)
+        end_ts = int(end_dt.timestamp() * 1000)
+
+        # 计算当天 JST 0点的 Unix 时间戳（毫秒）
+        # 使用正确的方式创建当天 0 点的时间
+        day_start_jst = datetime.combine(start_dt_jst.date(), datetime.min.time())
+        # 确保使用 replace 而不是 astimezone 来设置时区
+        day_start_jst = jst.localize(day_start_jst)
+        day_start_timestamp = int(day_start_jst.timestamp() * 1000)
+        ts_start = start_ts - day_start_timestamp
+        ts_end = end_ts - day_start_timestamp
+        
+        # 处理每个交易
+        for trade in trades_data:
+            if not ts_start <= trade["ts"] // 1000<= ts_end:
+                continue
+
+            trade_timestamp = day_start_timestamp + (trade["ts"] // 1000)  # 将微秒转换为毫秒
+
+            # 转换为标准格式
+            formatted_trade = {
+                "id": trade.get("f", 0),  # 使用 f (frame) 作为交易ID
+                "price": trade["p"] / 10,  # 价格（除以10）
+                "quantity": trade["q"],    # 数量
+                "timestamp": trade_timestamp,  # 时间戳（毫秒）
+                "isBuyerMaker": trade.get("t", 0) == 2  # 1是买，2是卖
+            }
+            trades.append(formatted_trade)
+        
+        # 按时间戳排序
+        trades.sort(key=lambda x: x["timestamp"])
+        
+        print(f"Processed {len(trades)} trades for {sc} within time range")
+        return trades
+    
+    except Exception as e:
+        print(f"Error getting trades from WebSocket: {str(e)}")
+        return []
+
+@app.get("/trades/{sc}")
+async def get_trades(sc: str, start_time: str, end_time: str, db: sqlite3.Connection = Depends(get_db)):
+    """
+    获取指定股票代码和时间范围内的交易数据
+    
+    参数:
+    - sc: 股票代码
+    - start_time: 开始时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    - end_time: 结束时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    
+    返回:
+    - 包含交易数据的 JSON 响应
+    """
+    try:
+        start_process = time.time()
+        
+        # 检查是否是当天数据且时间在下午3:30之前
+        now = datetime.now()
+        today_date = now.date()
+        
+        # 将 start_time 转换为 datetime 对象
+        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        start_date = start_dt.date()
+        
+        # 判断是否是当天数据
+        # is_today = start_date == today_date
+        is_today = True
+
+        
+        # 判断是否在下午3:30之前
+        market_close_time = datetime.combine(today_date, datetime.strptime("15:30", "%H:%M").time())
+        # before_market_close = now < market_close_time
+        before_market_close = True
+
+        
+        # 如果是当天数据且在下午3:30之前，尝试通过 WebSocket 获取实时数据
+        trades = []
+        if is_today and before_market_close and manager.active_connections:
+            print(f"Attempting to get real-time trades for {sc} via WebSocket")
+            trades = await get_trades_from_ws(sc, start_time, end_time)
+        
+        # 如果通过 WebSocket 没有获取到数据，则从文件获取
+        if not trades:
+            print(f"Falling back to file-based trade data for {sc}")
+            trades = get_trades_from_raw_frames(sc, start_time, end_time)
+        
+        # 计算处理时间
+        process_time = time.time() - start_process
+        
+        # 计算统计信息
+        total_trades = len(trades)
+        total_volume = sum(trade["quantity"] for trade in trades)
+        buy_volume = sum(trade["quantity"] for trade in trades if not trade["isBuyerMaker"])
+        sell_volume = sum(trade["quantity"] for trade in trades if trade["isBuyerMaker"])
+        
+        # 计算最高价、最低价和平均价
+        prices = [trade["price"] for trade in trades if trade["price"] > 0]
+        high_price = max(prices) if prices else 0
+        low_price = min(prices) if prices else 0
+        avg_price = sum(prices) / len(prices) if prices else 0
+        
+        return {
+            "sc": sc,
+            "start_time": start_time,
+            "end_time": end_time,
+            "process_time": process_time,
+            "total_trades": total_trades,
+            "total_volume": total_volume,
+            "buy_volume": buy_volume,
+            "sell_volume": sell_volume,
+            "high_price": high_price,
+            "low_price": low_price,
+            "avg_price": avg_price,
+            "trades": trades
+        }
+    
+    except Exception as e:
+        print(f"Error getting trades: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting trades: {str(e)}")
