@@ -705,59 +705,28 @@ export default class Dashboard {
   /**
    * 计算交易点的半径
    * @param {number} size - 交易数量
-   * @param {number|Object} [vertBandwidth] - 垂直带宽（旧接口）或配置选项（新接口）
-   * @param {number} [maxTradedSize] - 最大交易量（旧接口）
-   * @param {Object} [options] - 配置选项（新接口，当第二个参数为数字时使用）
+   * @param {number} vertBandwidth - 垂直带宽
+   * @param {number} maxTradedSize - 最大交易量
    * @returns {number} - 计算后的半径
    */
-  getDeltaDotRadius(size, vertBandwidth, maxTradedSize, options) {
-    // 检查是否使用旧接口
-    if (typeof vertBandwidth === 'number' && typeof maxTradedSize === 'number') {
-      // 旧接口逻辑
-    const maxMultiplier = 1;
-    let baseMultiplier = 0.25;
+  getDeltaDotRadius(size, vertBandwidth, maxTradedSize) {
+    const maxMultiplier = 1.5;
+    let baseMultiplier = 0.01;
 
-      if (this.useLogScaleForDots) {
-      baseMultiplier += (Math.log2(size) / Math.log2(maxTradedSize)) * maxMultiplier;
+    // 默认使用对数缩放
+    this.useLogScaleForDots = true;
+
+    if (this.useLogScaleForDots && size > 4000) {
+      // 使用对数缩放，适合数量差异很大的情况
+      // TODO: make the parameter here adjustable on UI, right now even with log, the size diff is not that obvious
+      // Also right now this can't handle vols < 0 very well
+      baseMultiplier += (Math.max((Math.log2(size)-12), 0) / (Math.log2(maxTradedSize))) * maxMultiplier;
     } else {
+      // 线性缩放
       baseMultiplier += (size / maxTradedSize) * maxMultiplier;
     }
       
     return vertBandwidth * baseMultiplier;
-  }
-
-    // 新接口逻辑
-    // 如果第二个参数是对象，则它是 options
-    const opts = typeof vertBandwidth === 'object' ? vertBandwidth : (options || {});
-    
-    // 默认配置
-    const defaults = {
-      minRadius: 2,      // 最小半径
-      maxRadius: 5,      // 最大半径
-      scaleFactor: 0.5,  // 缩放因子
-      logBase: false     // 是否使用对数缩放
-    };
-    
-    // 合并选项
-    const config = { ...defaults, ...opts };
-    
-    // 确保数量为正数
-    const safeSize = Math.max(0, size);
-    
-    // 计算半径
-    let radius;
-    
-    if (config.logBase) {
-      // 使用对数缩放，适合数量差异很大的情况
-      const logBase = config.logBase === true ? 10 : config.logBase;
-      radius = Math.log(safeSize + 1) / Math.log(logBase) * config.scaleFactor;
-    } else {
-      // 使用平方根缩放，适合一般情况
-      radius = Math.sqrt(safeSize) * config.scaleFactor;
-    }
-    
-    // 限制在最小和最大半径之间
-    return Math.min(config.maxRadius, Math.max(config.minRadius, radius));
   }
 
   // 启动常规更新
@@ -1368,7 +1337,7 @@ export default class Dashboard {
         if (trade.isBuyerMaker) {
           // 卖出交易 (红色)
           bucket.sellVolume += quantity;
-        } else {
+      } else {
           // 买入交易 (绿色)
           bucket.buyVolume += quantity;
         }
@@ -1529,14 +1498,8 @@ export default class Dashboard {
         color = 0x888888; // 灰色 - 买卖平衡
       }
       
-      // 计算点大小 - 基于总交易量
-      const radius = this.getDeltaDotRadius(bucket.totalVolume, {
-        minRadius: 3,
-        maxRadius: 10,
-        scaleFactor: 0.6,
-        // 对于大量交易，使用对数缩放
-        logBase: maxVolume > 100 ? 10 : false
-      });
+      // 计算点大小 - 基于总交易量和单元格高度
+      const radius = this.getDeltaDotRadius(bucket.totalVolume, this.cellSize.height, maxVolume);
       
       // 添加交易点数据
       this.deltasData.push({
@@ -1544,7 +1507,7 @@ export default class Dashboard {
         y: worldY,
         radius: radius,
         color: color,
-        bucket: bucket, // 存储桶数据，用于工具提示
+        bucket: bucket,
         timestamp: timestamp
       });
     }
