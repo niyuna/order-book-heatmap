@@ -1,7 +1,7 @@
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, Any
 
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -19,7 +19,9 @@ import os
 import re
 import pytz
 import threading
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
+import asyncio
+import logging
 
 # 可配置的常量
 DB_PATH = os.environ.get('DB_PATH', 'F:\\kabu\\ita.db')
@@ -178,30 +180,32 @@ def post_in_day_ita_dict(ita_dict: Dict[str, Ita], db: sqlite3.Connection = Depe
 
 @app.post("/brisk-next-command")
 async def post_brisk_next_command(command: BriskCommand):
-    for connection in shared_vars['active_ws_connection']:
-        await connection.send_text(f"{command.command} {','.join(command.args)}")
+    # for connection in shared_vars['active_ws_connection']:
+    #     await connection.send_text(f"{command.command} {','.join(command.args)}")
+    awaitmanager.broadcast(command.command)
     return ['ok', command.command]
 
 
 @app.get("/brisk-next-command")
 async def get_brisk_next_command(cmd: str, args: str):
     print(cmd, args)
-    for connection in shared_vars['active_ws_connection']:
-        await connection.send_text(f"{cmd} {args}")
+    # for connection in shared_vars['active_ws_connection']:
+    #     await connection.send_text(f"{cmd} {args}")
+    await manager.broadcast(f"{cmd} {args}")
     return ['ok', cmd]
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    shared_vars['active_ws_connection'].append(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            print(data)
-    except WebSocketDisconnect:
-        print("Client disconnected")
-        shared_vars['active_ws_connection'].remove(websocket)
+# @app.websocket("/ws")
+# async def websocket_endpoint(websocket: WebSocket):
+#     await websocket.accept()
+#     shared_vars['active_ws_connection'].append(websocket)
+#     try:
+#         while True:
+#             data = await websocket.receive_text()
+#             print(data)
+#     except WebSocketDisconnect:
+#         print("Client disconnected")
+#         shared_vars['active_ws_connection'].remove(websocket)
 
 
 # 使用线程安全的 OrderedDict 作为缓存
@@ -331,7 +335,7 @@ def get_trades_from_raw_frames(sc, start_time, end_time):
                 day_start_jst = jst.localize(day_start_jst)
                 day_start_timestamp = int(day_start_jst.timestamp() * 1000)
                 
-                print(f"Day start timestamp: {day_start_timestamp}, {day_start_jst.isoformat()}")
+                # print(f"Day start timestamp: {day_start_timestamp}, {day_start_jst.isoformat()}")
                 
                 # 转换所有交易数据
                 all_trades = []
@@ -346,7 +350,7 @@ def get_trades_from_raw_frames(sc, start_time, end_time):
                         "price": trade["p"] / 10,  # 价格（除以10）
                         "quantity": trade["q"],    # 数量
                         "timestamp": trade_timestamp,  # 时间戳（毫秒）
-                        "original_timestamp": trade["ts"],
+                        # "original_timestamp": trade["ts"],
                         "isBuyerMaker": trade.get("t", 0) == 2  # 1是买，2是卖
                     }
                     all_trades.append(formatted_trade)
@@ -660,3 +664,133 @@ async def clear_cache():
     except Exception as e:
         print(f"Error clearing cache: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
+
+# 共享数据存储
+# 使用线程锁保护共享数据
+class SharedDataStore:
+    def __init__(self):
+        self.data_store = {}  # 存储 req_id -> data 的映射
+        self.lock = threading.Lock()
+    
+    def store_data(self, req_id: str, data: Any) -> None:
+        """存储请求数据"""
+        with self.lock:
+            self.data_store[req_id] = data
+            # 可以选择限制存储大小，防止内存泄漏
+            if len(self.data_store) > 1000:  # 如果存储超过1000条记录
+                # 删除最旧的记录（简单实现）
+                oldest_key = next(iter(self.data_store))
+                del self.data_store[oldest_key]
+    
+    def get_data(self, req_id: str) -> Optional[Any]:
+        """获取请求数据"""
+        with self.lock:
+            return self.data_store.get(req_id)
+    
+    def remove_data(self, req_id: str) -> None:
+        """删除请求数据"""
+        with self.lock:
+            if req_id in self.data_store:
+                del self.data_store[req_id]
+    
+    def get_all_data(self) -> Dict[str, Any]:
+        """获取所有数据的副本"""
+        with self.lock:
+            return self.data_store.copy()
+
+# 创建共享数据存储实例
+shared_data_store = SharedDataStore()
+
+# WebSocket 连接管理器
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        print(f"Client connected. Total connections: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+        print(f"Client disconnected. Total connections: {len(self.active_connections)}")
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception as e:
+                print(f"Error broadcasting message: {e}")
+
+manager = ConnectionManager()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                # 解析接收到的 JSON 数据
+                json_data = json.loads(data)
+                
+                # 检查是否包含 req_id 和 data 字段
+                if "req_id" in json_data and "data" in json_data:
+                    req_id = json_data["req_id"]
+                    req_data = json_data["data"]
+                    
+                    # 存储到共享数据存储中
+                    shared_data_store.store_data(req_id, req_data)
+                    print(f"Stored data for request ID: {req_id}")
+                    
+                    # 发送确认消息
+                    await websocket.send_text(json.dumps({
+                        "type": "ack",
+                        "req_id": req_id,
+                        "status": "stored"
+                    }))
+                
+            except json.JSONDecodeError:
+                print(f"Invalid JSON received: {data}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Invalid JSON format"
+                }))
+            except Exception as e:
+                print(f"Error processing message: {e}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": str(e)
+                }))
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+# 添加一个 REST API 端点来访问存储的数据
+@app.get("/api/stored-data/{req_id}")
+async def get_stored_data(req_id: str):
+    data = shared_data_store.get_data(req_id)
+    if data is not None:
+        return {"req_id": req_id, "data": data}
+    else:
+        return JSONResponse(
+            status_code=404,
+            content={"message": f"No data found for request ID: {req_id}"}
+        )
+
+# 获取所有存储的数据
+@app.get("/api/stored-data")
+async def get_all_stored_data():
+    return {"data": shared_data_store.get_all_data()}
+
+# 删除特定请求 ID 的数据
+@app.delete("/api/stored-data/{req_id}")
+async def delete_stored_data(req_id: str):
+    shared_data_store.remove_data(req_id)
+    return {"message": f"Data for request ID {req_id} has been deleted"}
+
+# # 挂载静态文件
+# app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
