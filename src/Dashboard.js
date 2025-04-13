@@ -693,17 +693,62 @@ export default class Dashboard {
     this.barChart.render(askLevels, bidLevels, sortedPrices);
   }
 
-  //logarithmically scale delta dot size
-  getDeltaDotRadius(size, vertBandwidth, maxTradedSize) {
-    const maxMultiplier = 1;
-    let baseMultiplier = 0.25;
-
-    if (0) {
-      baseMultiplier += (Math.log2(size) / Math.log2(maxTradedSize)) * maxMultiplier;
-    } else {
-      baseMultiplier += (size / maxTradedSize) * maxMultiplier;
+  /**
+   * 计算交易点的半径
+   * @param {number} size - 交易数量
+   * @param {number|Object} [vertBandwidth] - 垂直带宽（旧接口）或配置选项（新接口）
+   * @param {number} [maxTradedSize] - 最大交易量（旧接口）
+   * @param {Object} [options] - 配置选项（新接口，当第二个参数为数字时使用）
+   * @returns {number} - 计算后的半径
+   */
+  getDeltaDotRadius(size, vertBandwidth, maxTradedSize, options) {
+    // 检查是否使用旧接口
+    if (typeof vertBandwidth === 'number' && typeof maxTradedSize === 'number') {
+      // 旧接口逻辑
+      const maxMultiplier = 1;
+      let baseMultiplier = 0.25;
+      
+      if (this.useLogScaleForDots) {
+        baseMultiplier += (Math.log2(size) / Math.log2(maxTradedSize)) * maxMultiplier;
+      } else {
+        baseMultiplier += (size / maxTradedSize) * maxMultiplier;
+      }
+      
+      return vertBandwidth * baseMultiplier;
     }
-    return vertBandwidth * baseMultiplier;
+    
+    // 新接口逻辑
+    // 如果第二个参数是对象，则它是 options
+    const opts = typeof vertBandwidth === 'object' ? vertBandwidth : (options || {});
+    
+    // 默认配置
+    const defaults = {
+      minRadius: 2,      // 最小半径
+      maxRadius: 5,      // 最大半径
+      scaleFactor: 0.5,  // 缩放因子
+      logBase: false     // 是否使用对数缩放
+    };
+    
+    // 合并选项
+    const config = { ...defaults, ...opts };
+    
+    // 确保数量为正数
+    const safeSize = Math.max(0, size);
+    
+    // 计算半径
+    let radius;
+    
+    if (config.logBase) {
+      // 使用对数缩放，适合数量差异很大的情况
+      const logBase = config.logBase === true ? 10 : config.logBase;
+      radius = Math.log(safeSize + 1) / Math.log(logBase) * config.scaleFactor;
+    } else {
+      // 使用平方根缩放，适合一般情况
+      radius = Math.sqrt(safeSize) * config.scaleFactor;
+    }
+    
+    // 限制在最小和最大半径之间
+    return Math.min(config.maxRadius, Math.max(config.minRadius, radius));
   }
 
   // 启动常规更新
@@ -1292,7 +1337,13 @@ export default class Dashboard {
       // 计算交易点颜色和大小
       const color = trade.isBuyerMaker ? 0xFF0000 : 0x00FF00; // 红色表示卖，绿色表示买
       const quantity = trade.quantity || trade.size || 1; // 兼容不同的数量字段名
-      const radius = Math.min(5, Math.max(2, Math.sqrt(quantity) * 0.5)); // 根据数量调整大小
+
+      // 使用新的方法计算半径，传递选项对象作为第二个参数
+      const radius = this.getDeltaDotRadius(quantity, {
+        minRadius: 2,
+        maxRadius: 6,
+        scaleFactor: 0.5
+      });
       
       // 添加交易点数据
       this.deltasData.push({
@@ -1367,8 +1418,8 @@ export default class Dashboard {
     // 创建新的 mesh
     this.deltaMesh = new PIXI.Mesh({
       geometry: newGeometry,
-      shader: this.deltaShader,
-      drawMode: PIXI.DRAW_MODES.POINTS
+      shader: this.deltaShader
+      // drawMode: PIXI.DRAW_MODES.POINTS
     });
     
     // 添加 mesh 到交易点容器
