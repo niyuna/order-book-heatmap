@@ -445,9 +445,10 @@ async def get_historical_data(sc: str, start_time: str, end_time: str, update_in
                 "timestamp": parse_iso_timestamp(timestamp),  # 转换为毫秒时间戳
                 "snapshot": snapshot
             })
-        
+            
         # 从 brisk_raw_frames 获取交易数据
-        trades_data = get_trades_from_raw_frames(sc, start_time, end_time)
+        # trades_data = get_trades_from_raw_frames(sc, start_time, end_time)
+        trades_data = await get_trades_smart(sc, start_time, end_time)
         # trades_data = []
         
         # 如果提供了 update_interval 参数，可以在这里实现数据重采样
@@ -783,7 +784,7 @@ async def delete_stored_data(req_id: str):
 
 async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
     """
-    通过 WebSocket 获取实时交易数据
+    通过 WebSocket 获取实时交易数据，使用渐进式等待策略
     
     参数:
     - sc: 股票代码
@@ -805,12 +806,8 @@ async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
         print(f"Broadcasting command to get trades for {sc} with req_id: {req_id}")
         
         # 广播命令给所有 WebSocket 连接
-        # await manager.broadcast(command)
         await manager.broadcast(f"TICKS {sc}:{req_id}")
         
-        # 等待一段时间，让客户端有时间响应
-        await asyncio.sleep(0.5)  # 100ms
-
         # 转换时间为 datetime 对象，用于过滤
         start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
         end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
@@ -820,11 +817,29 @@ async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
         start_dt_jst = start_dt.astimezone(jst)
         end_dt_jst = end_dt.astimezone(jst)
         
-        # 检查共享存储中是否有对应的结果
-        trades_data = shared_data_store.get_data(req_id)
+        # 渐进式等待数据返回，最多等待 500ms
+        max_wait_time = 0.5  # 总共最多等待 500ms
+        wait_interval = 0.1  # 每次等待 100ms
+        wait_count = int(max_wait_time / wait_interval)
         
+        trades_data = None
+        
+        # 循环等待数据返回
+        for i in range(wait_count):
+            # 等待一小段时间
+            await asyncio.sleep(wait_interval)
+            
+            # 检查共享存储中是否有对应的结果
+            trades_data = shared_data_store.get_data(req_id)
+            
+            # 如果已经收到数据，提前结束等待
+            if trades_data:
+                print(f"Received data after {(i+1) * wait_interval:.1f}s")
+                break
+        
+        # 如果没有收到数据，返回空列表
         if not trades_data:
-            print(f"No trade data received for {sc} via WebSocket")
+            print(f"No trade data received for {sc} via WebSocket after {max_wait_time}s")
             return []
         
         print(f"Received {len(trades_data) if isinstance(trades_data, list) else 'unknown'} trades for {sc} via WebSocket")
@@ -839,8 +854,6 @@ async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
             else:
                 print(f"Unexpected trades_data format: {type(trades_data)}")
                 return []
-        
-        
         
         # 转换为毫秒时间戳
         start_ts = int(start_dt.timestamp() * 1000)
@@ -857,7 +870,7 @@ async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
         
         # 处理每个交易
         for trade in trades_data:
-            if not ts_start <= trade["ts"] // 1000<= ts_end:
+            if not ts_start <= trade["ts"] // 1000 <= ts_end:
                 continue
 
             trade_timestamp = day_start_timestamp + (trade["ts"] // 1000)  # 将微秒转换为毫秒
@@ -883,7 +896,7 @@ async def get_trades_from_ws(sc: str, start_time: str, end_time: str):
         return []
 
 @app.get("/trades/{sc}")
-async def get_trades(sc: str, start_time: str, end_time: str, db: sqlite3.Connection = Depends(get_db)):
+async def get_trades(sc: str, start_time: str, end_time: str):
     """
     获取指定股票代码和时间范围内的交易数据
     
@@ -910,7 +923,6 @@ async def get_trades(sc: str, start_time: str, end_time: str, db: sqlite3.Connec
         # is_today = start_date == today_date
         is_today = True
 
-        
         # 判断是否在下午3:30之前
         market_close_time = datetime.combine(today_date, datetime.strptime("15:30", "%H:%M").time())
         # before_market_close = now < market_close_time
@@ -961,3 +973,59 @@ async def get_trades(sc: str, start_time: str, end_time: str, db: sqlite3.Connec
     except Exception as e:
         print(f"Error getting trades: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting trades: {str(e)}")
+
+async def get_trades_smart(sc: str, start_time: str, end_time: str):
+    """
+    智能获取交易数据，根据时间自动选择数据源
+    
+    参数:
+    - sc: 股票代码
+    - start_time: 开始时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    - end_time: 结束时间 (ISO 格式: YYYY-MM-DDTHH:MM:SS)
+    
+    返回:
+    - 包含交易数据的列表，格式与 get_trades_from_raw_frames 相同
+    """
+    try:
+        # 检查是否是当天数据且时间在下午3:30之前
+        now = datetime.now()
+        today_date = now.date()
+        
+        # 将 start_time 转换为 datetime 对象
+        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        start_date = start_dt.date()
+        
+        # 判断是否是当天数据
+        is_today = start_date == today_date
+        
+        # 判断是否在下午3:30之前
+        jst = pytz.timezone('Asia/Tokyo')
+        now_jst = now.astimezone(jst)
+        market_close_time = datetime.combine(today_date, datetime.strptime("15:30", "%H:%M").time())
+        market_close_time = jst.localize(market_close_time)
+        before_market_close = now_jst < market_close_time
+        
+        # 如果是当天数据且在下午3:30之前，尝试通过 WebSocket 获取实时数据
+        trades = []
+        if is_today and before_market_close and manager.active_connections:
+            print(f"[get_trades_smart] Attempting to get real-time trades for {sc} via WebSocket")
+            trades = await get_trades_from_ws(sc, start_time, end_time)
+            
+            if trades:
+                print(f"[get_trades_smart] Successfully retrieved {len(trades)} trades via WebSocket")
+                # 转换为 get_trades_from_raw_frames 格式
+                return trades
+        
+        # 如果通过 WebSocket 没有获取到数据，则从文件获取
+        print(f"[get_trades_smart] Falling back to file-based trade data for {sc}")
+        return get_trades_from_raw_frames(sc, start_time, end_time)
+    
+    except Exception as e:
+        print(f"[get_trades_smart] Error getting trades: {str(e)}")
+        # 出错时尝试从文件获取
+        try:
+            return get_trades_from_raw_frames(sc, start_time, end_time)
+        except Exception as e2:
+            print(f"[get_trades_smart] Error getting trades from raw frames: {str(e2)}")
+            return []  # 如果所有方法都失败，返回空列表
+
