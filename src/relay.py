@@ -479,41 +479,66 @@ def parse_iso_timestamp(timestamp_str):
 
 def convert_ita_to_snapshot(ita_data):
     """
-    将 Ita 数据转换为订单簿快照格式
-    """
-    rows = ita_data.get("rows", [])
+    将 ITA 数据转换为订单簿快照
     
-    # 提取买单和卖单
+    参数:
+    - ita_data: ITA 数据
+    
+    返回:
+    - 订单簿快照，包含买单、卖单和订单差值
+    """
     bids = []
     asks = []
     
-    for row in rows:
-        price = row.get("p", 0)
-        
-        # 处理买单
-        if "b" in row and row["b"]:
-            bid_quantity = row["b"].get("q", 0)
-            if bid_quantity > 0:
+    # 计算订单差值（买单总量 - 卖单总量）
+    order_delta = 0
+    
+    # 处理常规行
+    if "rows" in ita_data:
+        for row in ita_data["rows"]:
+            price = row.get("p", 0)
+            
+            # 跳过无效价格
+            if price <= 0:
+                continue
+            
+            # 处理买单
+            if "b" in row and row["b"]:
+                bid_quantity = row["b"].get("q", 0)
                 bids.append([str(price), str(bid_quantity)])
-        
-        # 处理卖单
-        if "a" in row and row["a"]:
-            ask_quantity = row["a"].get("q", 0)
-            if ask_quantity > 0:
+                order_delta += bid_quantity  # 买单增加差值
+            
+            # 处理卖单
+            if "a" in row and row["a"]:
+                ask_quantity = row["a"].get("q", 0)
                 asks.append([str(price), str(ask_quantity)])
+                order_delta -= ask_quantity  # 卖单减少差值
+    
+    # 处理下限以下的买单
+    if "under" in ita_data and ita_data["under"]:
+        under = ita_data["under"]
+        if "b" in under and under["b"]:
+            under_bid_quantity = under["b"].get("q", 0)
+            order_delta += under_bid_quantity  # 下限买单增加差值
+    
+    # 处理上限以上的卖单
+    if "over" in ita_data and ita_data["over"]:
+        over = ita_data["over"]
+        if "a" in over and over["a"]:
+            over_ask_quantity = over["a"].get("q", 0)
+            order_delta -= over_ask_quantity  # 上限卖单减少差值
     
     # 按价格排序
     bids.sort(key=lambda x: float(x[0]), reverse=True)  # 买单按价格降序
     asks.sort(key=lambda x: float(x[0]))  # 卖单按价格升序
     
-    # 创建快照
-    snapshot = {
+    # 返回包含订单差值的快照
+    return {
         "lastUpdateId": ita_data.get("frame", 0),
         "bids": bids,
-        "asks": asks
+        "asks": asks,
+        "order_delta": order_delta  # 添加订单差值
     }
-    
-    return snapshot
 
 @app.get("/raw-trades/{sc}")
 async def get_raw_trades(sc: str, start_time: str, end_time: str, limit: int = None):
